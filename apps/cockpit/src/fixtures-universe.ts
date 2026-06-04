@@ -178,7 +178,7 @@ export const controlPlane: ControlPlaneSummary = {
       status: "submitted",
       allowedSlice: ["Jankurai"],
       persistence: "pr_export_only",
-      pty: "disabled_by_default",
+      pty: "pty_disabled",
       updatedAt: "fixture",
       overdue: false,
       stuck: false,
