@@ -1,4 +1,14 @@
-import type { AttentionLevel, Health, MemoryState, Risk, SystemNode, ToolAsset, VoiceState } from "./types";
+import type {
+  AttentionLevel,
+  ControlPlaneSummary,
+  Health,
+  MemoryState,
+  Risk,
+  ScoreFreshness,
+  SystemNode,
+  ToolAsset,
+  VoiceState,
+} from "./types";
 
 export type ApiWorkOrder = {
   id: string;
@@ -146,6 +156,64 @@ export type ApiEcosystem = {
   degradedReason?: string;
 };
 
+export type ApiFleetBoard = {
+  generated_at_note: string;
+  schema: string;
+  repos: Array<{
+    name: string;
+    path: string;
+    branch?: string | null;
+    host?: string | null;
+    dirty?: number | null;
+    dirty_files?: number | null;
+    last_commit_sha?: string | null;
+    head_sha?: string | null;
+    last_commit_when?: string | null;
+    last_commit_epoch?: number | null;
+    last_binary_epoch?: number | null;
+    last_tests_epoch?: number | null;
+    version?: string | null;
+    ci_configured: boolean;
+    score?: number | null;
+    raw?: number | null;
+    caps?: string[];
+    caps_count?: number | null;
+    hard_findings?: number | null;
+    hl_level?: string | null;
+    score_source?: string | null;
+    score_freshness: ScoreFreshness;
+    active_runner_count: number;
+    runner_busy: boolean;
+    runner_hint?: string | null;
+    main_ci_age_seconds?: number | null;
+    jeryu_gate: string;
+    artifact_state: {
+      local: string;
+      dev_canary: string;
+      prod: string;
+      release: string;
+      promote: string;
+      latest_sha?: string | null;
+    };
+    top_findings?: string[];
+    top_tool_opportunities?: string[];
+  }>;
+  totals: {
+    repo_count: number;
+    audited: number;
+    failed: number;
+    min_score?: number | null;
+    max_score?: number | null;
+    average_score?: number | null;
+    total_hard_findings: number;
+    below_threshold: number;
+  };
+  errors?: Array<{
+    path: string;
+    error: string;
+  }>;
+};
+
 export type ApiUniverse = {
   live: boolean;
   bootstrapTui: {
@@ -191,6 +259,8 @@ export type ApiUniverse = {
   ecosystem: ApiEcosystem;
 };
 
+export type ApiControlPlane = ControlPlaneSummary;
+
 export type EventBatch = Array<{ id?: number; event_type?: string }>;
 
-export { isAdapters, isApprovalArray, isApprovalChallengeArray, isAttentionPacketArray, isEcosystem, isEventBatch, isEvidenceArray, isHealthResponse, isMemoryProposalArray, isReplay, isSystemArray, isUniverse, isVoiceThreadArray, isWorkOrderArray } from "./runtime-api-guards";
+export { isAdapters, isApprovalArray, isApprovalChallengeArray, isAttentionPacketArray, isControlPlane, isEcosystem, isEventBatch, isEvidenceArray, isFleetBoard, isHealthResponse, isMemoryProposalArray, isReplay, isSystemArray, isUniverse, isVoiceThreadArray, isWorkOrderArray } from "./runtime-api-guards";

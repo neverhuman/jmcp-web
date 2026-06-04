@@ -4,8 +4,10 @@ import type {
   ApiApproval,
   ApiApprovalChallenge,
   ApiAttentionPacket,
+  ApiControlPlane,
   ApiEcosystem,
   ApiEvidence,
+  ApiFleetBoard,
   ApiMemoryProposal,
   ApiReplay,
   ApiUniverse,
@@ -226,75 +228,6 @@ function isAdaptersValue(value: unknown): value is ApiAdapters {
   );
 }
 
-function isEcosystemValue(value: unknown): value is ApiEcosystem {
-  return (
-    isRecord(value) &&
-    Array.isArray(value.tools) &&
-    value.tools.every((tool) => isRecord(tool) && isString(tool.name) && isString(tool.className)) &&
-    typeof value.live === "boolean" &&
-    (value.degradedReason === undefined || value.degradedReason === null || isString(value.degradedReason))
-  );
-}
-
-function isUniverseValue(value: unknown): value is ApiUniverse {
-  return (
-    isRecord(value) &&
-    typeof value.live === "boolean" &&
-    isRecord(value.bootstrapTui) &&
-    typeof value.bootstrapTui.live === "boolean" &&
-    isNumber(value.bootstrapTui.observedCoverage) &&
-    Array.isArray(value.bootstrapTui.activeRepos) &&
-    value.bootstrapTui.activeRepos.every(
-      (repo) =>
-        isRecord(repo) &&
-        isString(repo.repo) &&
-        isNumber(repo.toolCount) &&
-        isNumber(repo.score) &&
-        isHealth(repo.health),
-    ) &&
-    Array.isArray(value.bootstrapTui.repoScores) &&
-    value.bootstrapTui.repoScores.every(
-      (repo) =>
-        isRecord(repo) &&
-        isString(repo.repo) &&
-        isNumber(repo.toolCount) &&
-        isNumber(repo.score) &&
-        isNumber(repo.coverage) &&
-        isString(repo.currentTask) &&
-        isString(repo.branch) &&
-        isString(repo.pool) &&
-        isString(repo.placement) &&
-        isHealth(repo.health) &&
-        (repo.degradedReason === undefined || repo.degradedReason === null || isString(repo.degradedReason)),
-    ) &&
-    Array.isArray(value.bootstrapTui.placements) &&
-    value.bootstrapTui.placements.every(
-      (placement) =>
-        isRecord(placement) &&
-        isString(placement.agent) &&
-        isString(placement.repo) &&
-        isString(placement.currentTask) &&
-        isString(placement.branch) &&
-        isString(placement.pool) &&
-        isString(placement.placement) &&
-        isNumber(placement.score) &&
-        isHealth(placement.health) &&
-        (placement.degradedReason === undefined || placement.degradedReason === null || isString(placement.degradedReason)),
-    ) &&
-    Array.isArray(value.bootstrapTui.degradedSlices) &&
-    value.bootstrapTui.degradedSlices.every(
-      (slice) =>
-        isRecord(slice) &&
-        isString(slice.name) &&
-        typeof slice.live === "boolean" &&
-        isNumber(slice.coverage) &&
-        (slice.degradedReason === undefined || slice.degradedReason === null || isString(slice.degradedReason)),
-    ) &&
-    (value.bootstrapTui.degradedReason === undefined || value.bootstrapTui.degradedReason === null || isString(value.bootstrapTui.degradedReason)) &&
-    isEcosystem(value.ecosystem)
-  );
-}
-
 export function isHealthResponse(value: unknown): value is { ok: boolean } {
   return isRecord(value) && typeof value.ok === "boolean";
 }
@@ -346,13 +279,7 @@ export function isAdapters(value: unknown): value is ApiAdapters {
   return isAdaptersValue(value);
 }
 
-export function isEcosystem(value: unknown): value is ApiEcosystem {
-  return isEcosystemValue(value);
-}
-
-export function isUniverse(value: unknown): value is ApiUniverse {
-  return isUniverseValue(value);
-}
+export { isControlPlane, isEcosystem, isFleetBoard, isUniverse } from "./runtime-api-guards-platform";
 
 export function isEventBatch(value: unknown): value is EventBatch {
   return (

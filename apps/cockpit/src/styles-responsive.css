@@ -23,6 +23,10 @@
     grid-template-columns: 1fr;
   }
 
+  .control-plane-grid {
+    grid-template-columns: 1fr;
+  }
+
   .attention-body {
     grid-template-columns: 1fr;
   }
@@ -80,6 +84,7 @@
 
   .topbar,
   .view-heading,
+  .control-plane-head,
   .attention-inbox-hero,
   .memory-hero,
   .voice-text-hero,
@@ -98,6 +103,7 @@
 
   .dashboard-grid,
   .card-grid,
+  .control-plane-metrics,
   .universe-scorecards,
   .approval-grid,
   .attention-packet-grid,
@@ -134,6 +140,7 @@
   }
 
   .attention-body,
+  .control-plane-workcell,
   .attention-card-head,
   .voice-card-head {
     grid-template-columns: 1fr;

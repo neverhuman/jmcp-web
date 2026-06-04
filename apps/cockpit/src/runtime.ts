@@ -1,6 +1,8 @@
 import {
   attentionPackets,
   approvalRequests,
+  controlPlane,
+  fleetBoard,
   evidenceBundles,
   memoryLessons,
   replayEvents,
@@ -14,9 +16,11 @@ import {
   isApprovalArray,
   isApprovalChallengeArray,
   isAttentionPacketArray,
+  isControlPlane,
   isEcosystem,
   isEventBatch,
   isEvidenceArray,
+  isFleetBoard,
   isHealthResponse,
   isMemoryProposalArray,
   isReplay,
@@ -28,8 +32,10 @@ import {
   type ApiApproval,
   type ApiApprovalChallenge,
   type ApiAttentionPacket,
+  type ApiControlPlane,
   type ApiEcosystem,
   type ApiEvidence,
+  type ApiFleetBoard,
   type ApiMemoryProposal,
   type ApiReplay,
   type ApiUniverse,
@@ -42,6 +48,7 @@ import {
   mapApprovalChallenge,
   mapAttentionPacket,
   mapEvidence,
+  mapFleetBoard,
   mapMemoryProposal,
   mapReplay,
   mapUniverse,
@@ -51,11 +58,13 @@ import {
 import type {
   ApprovalRequest,
   AttentionPacket,
+  ControlPlaneSummary,
   EvidenceBundle,
   Health,
   MemoryProposal,
   ReplayEvent,
   SystemNode,
+  FleetBoardSnapshot,
   UniverseActiveRepo,
   UniverseBootstrapTui,
   UniversePlacement,
@@ -77,11 +86,13 @@ export type RuntimeState = {
   systems: SystemNode[];
   toolAssets: ToolAsset[];
   universe: UniverseSnapshot;
+  fleetBoard: FleetBoardSnapshot;
   attentionPackets: AttentionPacket[];
   voiceThreads: VoiceTextThread[];
   memoryLessons: MemoryProposal[];
   replayEvents: ReplayEvent[];
   approvalRequests: ApprovalRequest[];
+  controlPlane: ControlPlaneSummary;
   ecosystemLive: boolean;
   ecosystemDegradedReason: string;
   loadedAt: string;
@@ -96,11 +107,13 @@ export function createFixtureRuntime(): RuntimeState {
     systems,
     toolAssets,
     universe: createFixtureUniverse(),
+    fleetBoard,
     attentionPackets,
     voiceThreads: voiceTextThreads,
     memoryLessons,
     replayEvents,
     approvalRequests,
+    controlPlane,
     ecosystemLive: false,
     ecosystemDegradedReason: "fixture data",
     loadedAt: "fixture",
@@ -126,7 +139,9 @@ export async function loadRuntime(): Promise<RuntimeState> {
     apiApprovalChallenges,
     apiAdapters,
     apiEcosystem,
+    apiFleetBoard,
     apiUniverse,
+    apiControlPlane,
   ] = await Promise.allSettled([
     getJson<{ ok: boolean }>("/health", isHealthResponse),
     getJson<ApiWorkOrder[]>("/work-orders", isWorkOrderArray),
@@ -140,7 +155,9 @@ export async function loadRuntime(): Promise<RuntimeState> {
     getJson<ApiApprovalChallenge[]>("/approval-challenges", isApprovalChallengeArray),
     getJson<ApiAdapters>("/adapters", isAdapters),
     getJson<ApiEcosystem>("/ecosystem", isEcosystem),
+    getJson<ApiFleetBoard>("/fleet-board", isFleetBoard),
     getJson<ApiUniverse>("/universe", isUniverse),
+    getJson<ApiControlPlane>("/control-plane", isControlPlane),
   ]);
 
   const allFailed = [
@@ -156,7 +173,9 @@ export async function loadRuntime(): Promise<RuntimeState> {
     apiApprovalChallenges,
     apiAdapters,
     apiEcosystem,
+    apiFleetBoard,
     apiUniverse,
+    apiControlPlane,
   ].every((result) => result.status === "rejected");
   if (allFailed) {
     return createFixtureRuntime();
@@ -196,6 +215,10 @@ export async function loadRuntime(): Promise<RuntimeState> {
         ? apiApprovals.value.map(mapApproval)
         : approvalRequests;
   const liveTools = liveUniverse.ecosystem.tools.length > 0 ? liveUniverse.ecosystem.tools : apiAdapters.status === "fulfilled" ? mapAdapters(apiAdapters.value) : toolAssets;
+  const liveFleetBoard =
+    apiFleetBoard.status === "fulfilled"
+      ? mapFleetBoard(apiFleetBoard.value)
+      : fleetBoard;
   const ecosystemLive = liveUniverse.ecosystem.live;
   const ecosystemDegradedReason = liveUniverse.ecosystem.degradedReason ?? "Jeryu ecosystem unavailable";
   const partialFailure = [
@@ -211,7 +234,9 @@ export async function loadRuntime(): Promise<RuntimeState> {
     apiApprovalChallenges,
     apiAdapters,
     apiEcosystem,
+    apiFleetBoard,
     apiUniverse,
+    apiControlPlane,
   ].some((result) => result.status === "rejected");
 
   return {
@@ -226,8 +251,10 @@ export async function loadRuntime(): Promise<RuntimeState> {
     memoryLessons: liveMemory,
     replayEvents: liveReplay,
     approvalRequests: liveApprovals,
+    controlPlane: apiControlPlane.status === "fulfilled" ? apiControlPlane.value : controlPlane,
     ecosystemLive,
     ecosystemDegradedReason,
+    fleetBoard: liveFleetBoard,
     loadedAt: new Date().toISOString().slice(11, 19) + "Z",
     usingFixtures: partialFailure,
   };
@@ -241,4 +268,3 @@ export function hasValidEventBatch(data: string): boolean {
     return false;
   }
 }
-

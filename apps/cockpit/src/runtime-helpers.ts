@@ -1,8 +1,9 @@
-import { systems, toolAssets, workItems } from "./fixtures";
+import { fleetBoard, systems, toolAssets, workItems } from "./fixtures";
 import type {
   Health,
   SystemNode,
   ToolAsset,
+  FleetBoardSnapshot,
   UniverseBootstrapTui,
   UniverseRepoScore,
   UniverseSlice,
@@ -23,6 +24,10 @@ export function createFixtureUniverse(): UniverseSnapshot {
       degradedReason: "fixture data",
     },
   });
+}
+
+export function createFixtureFleetBoard(): FleetBoardSnapshot {
+  return fleetBoard;
 }
 
 export function createDegradedEcosystem(degradedReason: string) {

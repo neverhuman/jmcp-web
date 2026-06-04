@@ -28,6 +28,9 @@ describe("JMCP cockpit", () => {
   it("shows the Mission Deck on the first screen", async () => {
     render(<App />);
 
+    expect(await screen.findByLabelText("JMCP control plane")).toBeInTheDocument();
+    expect(screen.getByText("Control Plane")).toBeInTheDocument();
+    expect(screen.getByText(/pr export only/i)).toBeInTheDocument();
     expect(await screen.findByLabelText("AIUX Mission Deck")).toBeInTheDocument();
     const rankedDeck = screen.getByLabelText("Ranked Mission Deck");
     expect(rankedDeck).toBeInTheDocument();
@@ -66,6 +69,10 @@ describe("JMCP cockpit", () => {
 
     expect(screen.getByRole("heading", { name: /observed coverage/i })).toBeInTheDocument();
     expect(screen.getAllByText("Jeryu").length).toBeGreaterThan(0);
+    expect(screen.getByText("/home/ubuntu/jmcp")).toBeInTheDocument();
+    expect(screen.getByText("outdated score")).toBeInTheDocument();
+    expect(screen.getAllByText("Jeryu gate").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("artifact receipts").length).toBeGreaterThan(0);
     expect(screen.getByText("Placement Rows")).toBeInTheDocument();
   });
 

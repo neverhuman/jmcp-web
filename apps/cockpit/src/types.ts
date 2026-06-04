@@ -14,6 +14,7 @@ export type Risk = "low" | "medium" | "high";
 export type AttentionLevel = "silent" | "digest" | "heads-up" | "decision" | "urgent" | "incident";
 export type VoiceState = "started" | "transcribed" | "intent_detected" | "confirmation_requested" | "confirmed" | "denied" | "ended";
 export type MemoryState = "shadow" | "proposed" | "quarantined" | "promoted" | "revoked";
+export type ScoreFreshness = "fresh" | "cached" | "unscored" | "outdated";
 
 export interface ViewDefinition {
   id: ViewId;
@@ -129,6 +130,153 @@ export interface UniverseSnapshot {
     live: boolean;
     degradedReason?: string;
   };
+}
+
+export interface FleetBoardError {
+  path: string;
+  error: string;
+}
+
+export interface FleetBoardTotals {
+  repoCount: number;
+  audited: number;
+  failed: number;
+  minScore?: number | null;
+  maxScore?: number | null;
+  averageScore?: number | null;
+  totalHardFindings: number;
+  belowThreshold: number;
+}
+
+export interface FleetBoardRepo {
+  name: string;
+  path: string;
+  branch?: string | null;
+  host?: string | null;
+  dirty?: number | null;
+  dirtyFiles?: number | null;
+  lastCommitSha?: string | null;
+  headSha?: string | null;
+  lastCommitWhen?: string | null;
+  lastCommitEpoch?: number | null;
+  lastBinaryEpoch?: number | null;
+  lastTestsEpoch?: number | null;
+  version?: string | null;
+  ciConfigured: boolean;
+  score?: number | null;
+  raw?: number | null;
+  caps: string[];
+  capsCount?: number | null;
+  hardFindings?: number | null;
+  hlLevel?: string | null;
+  scoreSource?: string | null;
+  scoreFreshness: ScoreFreshness;
+  activeRunnerCount: number;
+  runnerBusy: boolean;
+  runnerHint?: string | null;
+  mainCiAgeSeconds?: number | null;
+  jeryuGate: string;
+  artifactState: {
+    local: string;
+    devCanary: string;
+    prod: string;
+    release: string;
+    promote: string;
+    latestSha?: string | null;
+  };
+  topFindings: string[];
+  topToolOpportunities: string[];
+}
+
+export interface FleetBoardSnapshot {
+  generatedAtNote: string;
+  schema: string;
+  repos: FleetBoardRepo[];
+  totals: FleetBoardTotals;
+  errors: FleetBoardError[];
+}
+
+export interface ControlPlaneEventBusStatus {
+  appendOnly: boolean;
+  streamUrl: string;
+  sources: string[];
+}
+
+export interface ControlPlaneRepoStatus {
+  name: string;
+  health: Health;
+  currentVersion: string;
+  lastSuccessfulMainCi?: string | null;
+  lastBinary?: string | null;
+  lastTests?: string | null;
+  latestChangedFiles: string[];
+  activeWorkcells: number;
+  overdueActivity: boolean;
+  stuckActivity: boolean;
+  failingAudit: boolean;
+  auditReason?: string | null;
+  rerunCommand: string;
+}
+
+export interface ControlPlaneWorkcell {
+  id: string;
+  repo: string;
+  agent: string;
+  task: string;
+  status: string;
+  allowedSlice: string[];
+  persistence: string;
+  pty: string;
+  updatedAt: string;
+  overdue: boolean;
+  stuck: boolean;
+  rerunCommand: string;
+}
+
+export interface ControlPlaneAuditLane {
+  repo: string;
+  lane: string;
+  health: Health;
+  reason: string;
+  latestEvidence?: string | null;
+  rerunCommand: string;
+}
+
+export interface ControlPlanePolicy {
+  sandboxRequired: boolean;
+  directPersistenceAllowed: boolean;
+  prExportRequired: boolean;
+  ptyDefault: string;
+  findingCount: number;
+}
+
+export interface ControlPlaneVersioning {
+  current: string;
+  recommended: string;
+  impact: string;
+  reason: string;
+  releaseCompatible: boolean;
+  rollbackCompatible: boolean;
+}
+
+export interface ControlPlaneStream {
+  name: string;
+  url: string;
+  stdoutStderr: boolean;
+  ptyInput: boolean;
+  interactiveOnly: boolean;
+}
+
+export interface ControlPlaneSummary {
+  generatedAt: string;
+  eventWatermark: number;
+  eventBus: ControlPlaneEventBusStatus;
+  repos: ControlPlaneRepoStatus[];
+  activeWorkcells: ControlPlaneWorkcell[];
+  auditLanes: ControlPlaneAuditLane[];
+  policy: ControlPlanePolicy;
+  versioning: ControlPlaneVersioning;
+  streams: ControlPlaneStream[];
 }
 
 export interface AttentionAlternative {

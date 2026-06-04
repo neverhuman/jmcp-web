@@ -21,7 +21,7 @@ export type { VoiceAssistantApi, VoiceState };
 // Always-listening, privacy-first voice assistant. The mic runs continuously in
 // the browser; a lightweight energy VAD segments speech; each utterance is
 // transcribed on the LOCAL ASR sidecar and handled as a command while the widget
-// is active. No audio or text leaves the machine. Barge-in cancels stale
+// is active. No audio or text leaves the machine. Barge-in cancels superseded
 // reasoning, queued TTS, and current playback the moment you start talking again.
 
 type QueuedSpeech = {
@@ -203,7 +203,7 @@ export function useVoiceAssistant(): VoiceAssistantApi {
   const beginCapture = useCallback(() => {
     const stream = streamRef.current;
     if (!stream) return;
-    // barge-in: talking over the assistant cancels playback and stale LLM/TTS work
+    // barge-in: talking over the assistant cancels playback and superseded LLM/TTS work
     if (stateRef.current === "speaking" || stateRef.current === "thinking") {
       cancelPlayback();
       setBoth("listening");
@@ -305,7 +305,7 @@ export function useVoiceAssistant(): VoiceAssistantApi {
 
         if (rms > RMS_THRESHOLD) {
           // Echo cancellation handles assistant playback; live speech here is a
-          // barge-in and cancels stale reasoning/playback work.
+          // barge-in and cancels superseded reasoning/playback work.
           if (
             !capturingRef.current &&
             (stateRef.current === "listening" ||

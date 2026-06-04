@@ -57,7 +57,7 @@ function frame(seq: number, data: any): JituxFrame {
 }
 
 describe("JITUX reducer frames", () => {
-  it("reduces every canonical frame family and ignores stale frames", () => {
+  it("reduces every canonical frame family and ignores superseded frames", () => {
     const queuePane = pane("pane:queue", "Queue blocker", 0.98);
     const queuePaneUpdated = { ...queuePane, title: "Queue blocker v2", rank: 0.99 };
     const approvalPane = pane("pane:approval", "Approval gate", 0.72);
@@ -121,7 +121,7 @@ describe("JITUX reducer frames", () => {
     ];
 
     const state = frames.reduce(reduceJituxFrame, initialJituxState);
-    const stale = reduceJituxFrame(
+    const superseded = reduceJituxFrame(
       state,
       frame(13, {
         type: "session.done",
@@ -146,8 +146,8 @@ describe("JITUX reducer frames", () => {
     expect(state.actionsByPane[queuePane.id]).toHaveLength(1);
     expect(state.actionsByPane[queuePane.id][0].safety).toBe("read_only");
     expect(state.panes[queuePane.id].preparedTabs).toEqual(["evidence", "actions", "raw"]);
-    expect(stale.lastSeq).toBe(14);
-    expect(stale.error).toBe("The session stopped.");
+    expect(superseded.lastSeq).toBe(14);
+    expect(superseded.error).toBe("The session stopped.");
   });
 
   it("rejects malformed frames through the canonical guards", () => {
