@@ -1,5 +1,5 @@
 // Browser client for the local, on-box voice stack: ASR (:18878), TTS (:18901),
-// and the reasoning LLM (vLLM OpenAI API, :18902). All three are reached through
+// and an OpenAI-compatible reasoning endpoint (:18902). All three are reached through
 // the Vite dev proxy (/asr, /tts, /llm) so the browser stays same-origin (no CORS)
 // and no audio ever leaves the machine. Responses are narrowed from `unknown`
 // with explicit guards (matching runtime-api-guards.ts) — never `as`-cast.
@@ -55,11 +55,11 @@ function envBase(key: string, defaultBase: string): string {
 const ASR = envBase("VITE_ASR_BASE", "/asr");
 const TTS = envBase("VITE_TTS_BASE", "/tts");
 const LLM = envBase("VITE_LLM_BASE", "/llm");
-// Served-model name the vLLM sidecar registers under. Override with VITE_LLM_MODEL
+// Served-model name the local reasoning endpoint accepts. Override with VITE_LLM_MODEL
 // when the underlying model is swapped.
 export const VOICE_MODEL = envBase("VITE_LLM_MODEL", "local/qwen3-30b-a3b");
 
-/** Transcribe recorded audio (webm/opus/ogg/wav) via the faster-whisper sidecar. */
+/** Transcribe recorded audio (webm/opus/ogg/wav) via the local ASR daemon. */
 export async function transcribe(
   audio: Blob,
   language = "en",
@@ -84,7 +84,7 @@ export async function transcribe(
   return { text, confidence };
 }
 
-/** Synthesize speech via the Kokoro sidecar; returns an OGG/Opus blob to play. */
+/** Synthesize speech via the local TTS daemon; returns an OGG/Opus blob to play. */
 export async function synthesize(text: string, signal?: AbortSignal): Promise<Blob> {
   const response = await fetch(`${TTS}/synthesize?format=ogg`, {
     method: "POST",

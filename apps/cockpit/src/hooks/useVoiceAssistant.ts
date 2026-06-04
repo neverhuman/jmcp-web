@@ -20,7 +20,7 @@ export type { VoiceAssistantApi, VoiceState };
 
 // Always-listening, privacy-first voice assistant. The mic runs continuously in
 // the browser; a lightweight energy VAD segments speech; each utterance is
-// transcribed on the LOCAL ASR sidecar and handled as a command while the widget
+// transcribed on the local ASR daemon and handled as a command while the widget
 // is active. No audio or text leaves the machine. Barge-in cancels superseded
 // reasoning, queued TTS, and current playback the moment you start talking again.
 
