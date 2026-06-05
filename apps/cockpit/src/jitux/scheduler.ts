@@ -30,7 +30,7 @@ export function createTransformScheduler() {
       raf = requestAnimationFrame(flush);
       return;
     }
-    raf = window.setTimeout(flush, 16);
+    raf = window.setTimeout(flush, 16) as unknown as number;
   };
 
   return {

@@ -273,6 +273,8 @@ export function createQueueBlockerFrames(runtime: RuntimeState, sessionId = "fro
           approval ? approval.challengeId : "approval scan",
           approval ? `jmcp://approval/challenge/${approval.challengeId}` : "jmcp://approval/queue",
         ),
+        evidenceRef("evidence.replay", "replay checkpoint", "jmcp://replay/latest"),
+        evidenceRef("evidence.systems", "system health", "jmcp://systems"),
       ],
       freshnessMs: 9000,
       confidence: approval ? 0.86 : 0.62,

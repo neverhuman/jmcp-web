@@ -14,6 +14,11 @@ export type DeckSessionChannelDescriptor = {
 
 export type DeckLiveStopReason = "deactivate" | "barge_in";
 
+export type DeckLiveSessionStartOptions = {
+  prompt: string;
+  source: "deck" | "voice" | "agent";
+};
+
 export type DeckSessionTraceProbe = {
   id: string;
   label: string;
@@ -76,7 +81,7 @@ export function createDeckTrace(
 export function createDeckLiveSession(callbacks: DeckLiveSessionCallbacks) {
   let abortController: AbortController | null = null;
   let closeStream: (() => void) | null = null;
-  let retryTimer: number | null = null;
+  let retryTimer: ReturnType<typeof window.setTimeout> | null = null;
   let token = 0;
 
   const clearRetryTimer = () => {
@@ -155,6 +160,15 @@ export function createDeckLiveSession(callbacks: DeckLiveSessionCallbacks) {
 
   return {
     start: () => {
+      stop();
+      const currentToken = ++token;
+      const controller = new AbortController();
+      abortController = controller;
+      void attemptOpen(currentToken, controller);
+
+      return stop;
+    },
+    startWith: (_options: DeckLiveSessionStartOptions) => {
       stop();
       const currentToken = ++token;
       const controller = new AbortController();

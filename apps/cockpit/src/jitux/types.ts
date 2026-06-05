@@ -18,10 +18,31 @@ export type PaneKind =
   | "approval"
   | "adapter_health"
   | "memory"
-  | "autonomy";
+  | "autonomy"
+  | "report"
+  | "graph"
+  | "task";
 export type PaneRisk = "low" | "medium" | "high";
 export type PreparedTab = "evidence" | "replay" | "systems" | "actions" | "raw";
 export type FrameSource = "frontend" | "projection" | "agent" | "adapter" | "replay" | "approval";
+export type DeckCardType =
+  | "repo"
+  | "worker"
+  | "terminal"
+  | "issue"
+  | "taskDraft"
+  | "approval"
+  | "repoCreateDraft"
+  | "evidence"
+  | "cluster"
+  | "degradedSource"
+  | "report"
+  | "graph";
+export type SourceBadge = {
+  source: string;
+  status: "live" | "cached" | "degraded" | "draft";
+  reason?: string;
+};
 
 export type PaneVM = {
   id: string;
@@ -33,6 +54,8 @@ export type PaneVM = {
   lod: CardLOD;
   confidence: number;
   freshnessMs?: number;
+  cardType?: DeckCardType;
+  sourceBadges?: SourceBadge[];
   preview: {
     headline: string;
     chips: string[];

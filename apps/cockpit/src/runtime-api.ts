@@ -1,4 +1,4 @@
-import type { AttentionLevel, Health, MemoryState, Risk, SystemNode, ToolAsset, VoiceState } from "./types";
+import type { AttentionLevel, ControlPlaneSummary, FleetBoardSnapshot, Health, MemoryState, Risk, SystemNode, ToolAsset, VoiceState } from "./types";
 
 export type ApiWorkOrder = {
   id: string;
@@ -193,4 +193,7 @@ export type ApiUniverse = {
 
 export type EventBatch = Array<{ id?: number; event_type?: string }>;
 
-export { isAdapters, isApprovalArray, isApprovalChallengeArray, isAttentionPacketArray, isEcosystem, isEventBatch, isEvidenceArray, isHealthResponse, isMemoryProposalArray, isReplay, isSystemArray, isUniverse, isVoiceThreadArray, isWorkOrderArray } from "./runtime-api-guards";
+export type ApiFleetBoard = FleetBoardSnapshot;
+export type ApiControlPlane = ControlPlaneSummary;
+
+export { isAdapters, isApprovalArray, isApprovalChallengeArray, isAttentionPacketArray, isControlPlane, isEcosystem, isEventBatch, isEvidenceArray, isFleetBoard, isHealthResponse, isMemoryProposalArray, isReplay, isSystemArray, isUniverse, isVoiceThreadArray, isWorkOrderArray } from "./runtime-api-guards";

@@ -1,5 +1,5 @@
 export { views, workItems, evidenceBundles } from "./fixtures-work";
-export { systems, toolAssets } from "./fixtures-universe";
+export { controlPlane, fleetBoard, systems, toolAssets } from "./fixtures-universe";
 export {
   attentionPackets,
   voiceTextThreads,

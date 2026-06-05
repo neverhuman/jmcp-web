@@ -1,7 +1,9 @@
 import {
   attentionPackets,
   approvalRequests,
+  controlPlane,
   evidenceBundles,
+  fleetBoard,
   memoryLessons,
   replayEvents,
   systems,
@@ -14,9 +16,11 @@ import {
   isApprovalArray,
   isApprovalChallengeArray,
   isAttentionPacketArray,
+  isControlPlane,
   isEcosystem,
   isEventBatch,
   isEvidenceArray,
+  isFleetBoard,
   isHealthResponse,
   isMemoryProposalArray,
   isReplay,
@@ -25,11 +29,13 @@ import {
   isVoiceThreadArray,
   isWorkOrderArray,
   type ApiAdapters,
+  type ApiControlPlane,
   type ApiApproval,
   type ApiApprovalChallenge,
   type ApiAttentionPacket,
   type ApiEcosystem,
   type ApiEvidence,
+  type ApiFleetBoard,
   type ApiMemoryProposal,
   type ApiReplay,
   type ApiUniverse,
@@ -65,18 +71,56 @@ import type {
   ToolAsset,
   VoiceTextThread,
   WorkItem,
+  RuntimeSourceStatus,
+  ControlPlaneSummary,
+  FleetBoardSnapshot,
+  AgentSummary,
+  AgentSessionSummary,
+  ProcessObservationSummary,
+  RuntimeIncident,
 } from "./types";
 
 import { createDegradedEcosystem, createFixtureUniverse, createRuntimeUniverse, getJson } from "./runtime-helpers";
 const apiUrl = import.meta.env.VITE_JMCP_API_URL ?? "http://127.0.0.1:18877";
 
+type SettledSource = PromiseSettledResult<unknown>;
+
+const runtimeSourceCatalog: Array<{ key: string; label: string }> = [
+  { key: "health", label: "health" },
+  { key: "work-orders", label: "work orders" },
+  { key: "evidence", label: "evidence" },
+  { key: "systems", label: "systems" },
+  { key: "attention", label: "attention" },
+  { key: "voice-text", label: "voice/text" },
+  { key: "memory", label: "memory" },
+  { key: "replay", label: "replay" },
+  { key: "approvals", label: "approvals" },
+  { key: "approval-challenges", label: "approval challenges" },
+  { key: "adapters", label: "adapters" },
+  { key: "ecosystem", label: "Jeryu ecosystem" },
+  { key: "universe", label: "universe" },
+  { key: "fleet-board", label: "fleet board" },
+  { key: "control-plane", label: "control plane" },
+  { key: "agents", label: "agent bus" },
+  { key: "agent-sessions", label: "agent sessions" },
+  { key: "process-observations", label: "process observations" },
+  { key: "incidents", label: "incidents" },
+];
+
 export type RuntimeState = {
   apiHealth: Health;
+  sourceStatuses: RuntimeSourceStatus[];
   workItems: WorkItem[];
   evidenceBundles: EvidenceBundle[];
   systems: SystemNode[];
   toolAssets: ToolAsset[];
   universe: UniverseSnapshot;
+  fleetBoard: FleetBoardSnapshot;
+  agents: AgentSummary[];
+  agentSessions: AgentSessionSummary[];
+  processObservations: ProcessObservationSummary[];
+  incidents: RuntimeIncident[];
+  controlPlane: ControlPlaneSummary;
   attentionPackets: AttentionPacket[];
   voiceThreads: VoiceTextThread[];
   memoryLessons: MemoryProposal[];
@@ -91,11 +135,18 @@ export type RuntimeState = {
 export function createFixtureRuntime(): RuntimeState {
   return {
     apiHealth: "degraded",
+    sourceStatuses: degradedSourceStatuses("fixture data"),
     workItems,
     evidenceBundles,
     systems,
     toolAssets,
     universe: createFixtureUniverse(),
+    fleetBoard,
+    agents: [],
+    agentSessions: [],
+    processObservations: [],
+    incidents: [],
+    controlPlane,
     attentionPackets,
     voiceThreads: voiceTextThreads,
     memoryLessons,
@@ -127,6 +178,8 @@ export async function loadRuntime(): Promise<RuntimeState> {
     apiAdapters,
     apiEcosystem,
     apiUniverse,
+    apiFleetBoard,
+    apiControlPlane,
   ] = await Promise.allSettled([
     getJson<{ ok: boolean }>("/health", isHealthResponse),
     getJson<ApiWorkOrder[]>("/work-orders", isWorkOrderArray),
@@ -141,6 +194,8 @@ export async function loadRuntime(): Promise<RuntimeState> {
     getJson<ApiAdapters>("/adapters", isAdapters),
     getJson<ApiEcosystem>("/ecosystem", isEcosystem),
     getJson<ApiUniverse>("/universe", isUniverse),
+    getJson<ApiFleetBoard>("/fleet-board", isFleetBoard),
+    getJson<ApiControlPlane>("/control-plane", isControlPlane),
   ]);
 
   const allFailed = [
@@ -157,6 +212,8 @@ export async function loadRuntime(): Promise<RuntimeState> {
     apiAdapters,
     apiEcosystem,
     apiUniverse,
+    apiFleetBoard,
+    apiControlPlane,
   ].every((result) => result.status === "rejected");
   if (allFailed) {
     return createFixtureRuntime();
@@ -212,15 +269,45 @@ export async function loadRuntime(): Promise<RuntimeState> {
     apiAdapters,
     apiEcosystem,
     apiUniverse,
+    apiFleetBoard,
+    apiControlPlane,
   ].some((result) => result.status === "rejected");
+  const sourceStatuses = [
+    sourceStatus("health", "health", health),
+    sourceStatus("work-orders", "work orders", apiWork),
+    sourceStatus("evidence", "evidence", apiEvidence),
+    sourceStatus("systems", "systems", apiSystems),
+    sourceStatus("attention", "attention", apiAttention),
+    sourceStatus("voice-text", "voice/text", apiVoiceText),
+    sourceStatus("memory", "memory", apiMemory),
+    sourceStatus("replay", "replay", apiReplay),
+    sourceStatus("approvals", "approvals", apiApprovals),
+    sourceStatus("approval-challenges", "approval challenges", apiApprovalChallenges),
+    sourceStatus("adapters", "adapters", apiAdapters),
+    sourceStatus("ecosystem", "Jeryu ecosystem", apiEcosystem),
+    sourceStatus("universe", "universe", apiUniverse),
+    sourceStatus("fleet-board", "fleet board", apiFleetBoard),
+    sourceStatus("control-plane", "control plane", apiControlPlane),
+    degradedSourceStatus("agents", "agent bus", "endpoint unavailable"),
+    degradedSourceStatus("agent-sessions", "agent sessions", "endpoint unavailable"),
+    degradedSourceStatus("process-observations", "process observations", "endpoint unavailable"),
+    degradedSourceStatus("incidents", "incidents", "endpoint unavailable"),
+  ];
 
   return {
     apiHealth: partialFailure || health.status !== "fulfilled" || !health.value.ok ? "watch" : "nominal",
+    sourceStatuses,
     workItems: liveWork,
     evidenceBundles: liveEvidence,
     systems: liveSystems,
     toolAssets: liveTools,
     universe: liveUniverse,
+    fleetBoard: apiFleetBoard.status === "fulfilled" ? normalizeFleetBoard(apiFleetBoard.value) : fleetBoard,
+    agents: [],
+    agentSessions: [],
+    processObservations: [],
+    incidents: [],
+    controlPlane: apiControlPlane.status === "fulfilled" ? apiControlPlane.value : controlPlane,
     attentionPackets: liveAttention,
     voiceThreads: liveVoiceText,
     memoryLessons: liveMemory,
@@ -233,6 +320,118 @@ export async function loadRuntime(): Promise<RuntimeState> {
   };
 }
 
+function sourceStatus(key: string, label: string, result: SettledSource): RuntimeSourceStatus {
+  if (result.status === "fulfilled") {
+    return { key, label, state: "live" };
+  }
+  return {
+    key,
+    label,
+    state: "degraded",
+    reason: result.reason instanceof Error ? result.reason.message : "endpoint unavailable",
+  };
+}
+
+function degradedSourceStatus(key: string, label: string, reason: string): RuntimeSourceStatus {
+  return { key, label, state: "degraded", reason };
+}
+
+function degradedSourceStatuses(reason: string): RuntimeSourceStatus[] {
+  return runtimeSourceCatalog.map((source) => ({
+    ...source,
+    state: "degraded" as const,
+    reason,
+  }));
+}
+
+function normalizeFleetBoard(board: ApiFleetBoard): FleetBoardSnapshot {
+  const raw = board as unknown as Record<string, unknown>;
+  const repos = Array.isArray(raw.repos) ? raw.repos : [];
+  return {
+    generatedAtNote: String(raw.generatedAtNote ?? raw.generated_at_note ?? "live fleet board"),
+    schema: String(raw.schema ?? "fleet-board.v1"),
+    totals: normalizeFleetBoardTotals(raw.totals),
+    errors: Array.isArray(raw.errors) ? raw.errors as FleetBoardSnapshot["errors"] : [],
+    repos: repos.map(normalizeFleetBoardRepo),
+  };
+}
+
+function normalizeFleetBoardTotals(value: unknown): FleetBoardSnapshot["totals"] {
+  const totals = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  return {
+    repoCount: numberOr(totals.repoCount ?? totals.repo_count, 0),
+    audited: numberOr(totals.audited, 0),
+    failed: numberOr(totals.failed, 0),
+    minScore: nullableNumber(totals.minScore ?? totals.min_score),
+    maxScore: nullableNumber(totals.maxScore ?? totals.max_score),
+    averageScore: nullableNumber(totals.averageScore ?? totals.average_score),
+    totalHardFindings: numberOr(totals.totalHardFindings ?? totals.total_hard_findings, 0),
+    belowThreshold: numberOr(totals.belowThreshold ?? totals.below_threshold, 0),
+  };
+}
+
+function normalizeFleetBoardRepo(value: unknown): FleetBoardSnapshot["repos"][number] {
+  const repo = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  const artifact = typeof (repo.artifactState ?? repo.artifact_state) === "object" && (repo.artifactState ?? repo.artifact_state) !== null
+    ? (repo.artifactState ?? repo.artifact_state) as Record<string, unknown>
+    : {};
+  return {
+    name: String(repo.name ?? ""),
+    path: String(repo.path ?? ""),
+    branch: stringOrNull(repo.branch),
+    host: stringOrNull(repo.host),
+    dirty: nullableNumber(repo.dirty),
+    dirtyFiles: nullableNumber(repo.dirtyFiles ?? repo.dirty_files),
+    lastCommitSha: stringOrNull(repo.lastCommitSha ?? repo.last_commit_sha),
+    headSha: stringOrNull(repo.headSha ?? repo.head_sha),
+    lastCommitWhen: stringOrNull(repo.lastCommitWhen ?? repo.last_commit_when),
+    lastCommitEpoch: nullableNumber(repo.lastCommitEpoch ?? repo.last_commit_epoch),
+    lastBinaryEpoch: nullableNumber(repo.lastBinaryEpoch ?? repo.last_binary_epoch),
+    lastTestsEpoch: nullableNumber(repo.lastTestsEpoch ?? repo.last_tests_epoch),
+    version: stringOrNull(repo.version),
+    ciConfigured: Boolean(repo.ciConfigured ?? repo.ci_configured ?? false),
+    score: nullableNumber(repo.score),
+    raw: nullableNumber(repo.raw),
+    caps: stringArray(repo.caps),
+    capsCount: nullableNumber(repo.capsCount ?? repo.caps_count),
+    hardFindings: nullableNumber(repo.hardFindings ?? repo.hard_findings),
+    hlLevel: stringOrNull(repo.hlLevel ?? repo.hl_level),
+    scoreSource: stringOrNull(repo.scoreSource ?? repo.score_source),
+    scoreFreshness: String(repo.scoreFreshness ?? repo.score_freshness ?? "fresh") as FleetBoardSnapshot["repos"][number]["scoreFreshness"],
+    activeRunnerCount: numberOr(repo.activeRunnerCount ?? repo.active_runner_count, 0),
+    runnerBusy: Boolean(repo.runnerBusy ?? repo.runner_busy ?? false),
+    runnerHint: stringOrNull(repo.runnerHint ?? repo.runner_hint),
+    mainCiAgeSeconds: nullableNumber(repo.mainCiAgeSeconds ?? repo.main_ci_age_seconds),
+    jeryuGate: String(repo.jeryuGate ?? repo.jeryu_gate ?? "green"),
+    artifactState: {
+      local: String(artifact.local ?? "unknown"),
+      devCanary: String(artifact.devCanary ?? artifact.dev_canary ?? "unknown"),
+      prod: String(artifact.prod ?? "unknown"),
+      release: String(artifact.release ?? "unknown"),
+      promote: String(artifact.promote ?? "unknown"),
+      latestSha: stringOrNull(artifact.latestSha ?? artifact.latest_sha),
+    },
+    topFindings: stringArray(repo.topFindings ?? repo.top_findings),
+    topToolOpportunities: stringArray(repo.topToolOpportunities ?? repo.top_tool_opportunities),
+  };
+}
+
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function nullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
 export function hasValidEventBatch(data: string): boolean {
   try {
     const payload: unknown = JSON.parse(data);
@@ -241,4 +440,3 @@ export function hasValidEventBatch(data: string): boolean {
     return false;
   }
 }
-

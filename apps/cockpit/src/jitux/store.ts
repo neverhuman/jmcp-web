@@ -15,6 +15,9 @@ import { routeNowCommand } from "./command-router";
 import { getCardsForPane, getRankedPanes } from "./deck-queries";
 import type { JituxFrame, JituxState } from "./types";
 
+export { getCardsForPane, getRankedPanes };
+export type { DeckCardVM } from "./deck-queries";
+
 type Listener = () => void;
 type Selector<T> = (state: DeckState) => T;
 
@@ -120,8 +123,10 @@ function createStore() {
 
   const primeCommandDeck = (runtime: RuntimeState, prompt = latestPrompt) => {
     latestPrompt = prompt;
-    const frames = createNowCommandFrames(runtime, prompt);
     const route = routeNowCommand(prompt);
+    const frames = route.intent === "work_queue" || route.intent === "queue_blockers"
+      ? createQueueBlockerFrames(runtime)
+      : createNowCommandFrames(runtime, prompt);
     setState({
       ...applyFramesTo(initialDeckState, frames),
       trace: createDeckTrace(runtime, "degraded", "frontend", {
@@ -130,7 +135,7 @@ function createStore() {
         acceptedFrames: frames.length,
         firstFrameReceived: frames.length > 0,
       }),
-      caption: `${route.title} is visible while the broker session opens.`,
+      caption: "Cached snapshot is visible while the broker session opens.",
       streamStatus: "degraded",
       streamUrl: null,
       wsUrl: null,
@@ -223,7 +228,7 @@ function createStore() {
       liveSession.stop();
       primeCommandDeck(runtime, "what is blocking the queue?");
     },
-    startLiveQueueBlockers: (runtime?: RuntimeState, prompt = latestPrompt) => {
+    startLiveQueueBlockers: (runtime?: RuntimeState, prompt = latestPrompt || "what is blocking the queue?") => {
       if (runtime) {
         latestRuntime = runtime;
       }
@@ -234,7 +239,7 @@ function createStore() {
       if (!state.active) {
         primeCommandDeck(currentRuntime, prompt);
       }
-      return liveSession.startWith({ prompt: prompt || "status report", source: "deck" });
+      return liveSession.startWith({ prompt: prompt || "what is blocking the queue?", source: "deck" });
     },
     stopLiveQueueBlockers: (reason: DeckLiveStopReason = "deactivate") => {
       liveSession.stop();

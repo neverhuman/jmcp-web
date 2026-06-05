@@ -1,11 +1,13 @@
-import type { AttentionLevel, Health, MemoryState, Risk, SystemNode, VoiceState } from "./types";
+import type { AttentionLevel, ControlPlaneSummary, FleetBoardSnapshot, Health, MemoryState, Risk, SystemNode, VoiceState } from "./types";
 import type {
   ApiAdapters,
+  ApiControlPlane,
   ApiApproval,
   ApiApprovalChallenge,
   ApiAttentionPacket,
   ApiEcosystem,
   ApiEvidence,
+  ApiFleetBoard,
   ApiMemoryProposal,
   ApiReplay,
   ApiUniverse,
@@ -16,6 +18,33 @@ import type {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isFleetBoardRepoValue(value: unknown): boolean {
+  return isRecord(value) && isString(value.name) && isString(value.path);
+}
+
+function isFleetBoardValue(value: unknown): value is FleetBoardSnapshot {
+  return (
+    isRecord(value) &&
+    (isString(value.generatedAtNote) || isString(value.generated_at_note)) &&
+    isString(value.schema) &&
+    Array.isArray(value.repos) &&
+    value.repos.every(isFleetBoardRepoValue)
+  );
+}
+
+function isControlPlaneValue(value: unknown): value is ControlPlaneSummary {
+  return (
+    isRecord(value) &&
+    isString(value.generatedAt) &&
+    isNumber(value.eventWatermark) &&
+    isRecord(value.eventBus) &&
+    Array.isArray(value.repos) &&
+    Array.isArray(value.activeWorkcells) &&
+    Array.isArray(value.auditLanes) &&
+    isRecord(value.policy)
+  );
 }
 
 function isString(value: unknown): value is string {
@@ -352,6 +381,14 @@ export function isEcosystem(value: unknown): value is ApiEcosystem {
 
 export function isUniverse(value: unknown): value is ApiUniverse {
   return isUniverseValue(value);
+}
+
+export function isFleetBoard(value: unknown): value is ApiFleetBoard {
+  return isFleetBoardValue(value);
+}
+
+export function isControlPlane(value: unknown): value is ApiControlPlane {
+  return isControlPlaneValue(value);
 }
 
 export function isEventBatch(value: unknown): value is EventBatch {
