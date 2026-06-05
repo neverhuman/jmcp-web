@@ -10,12 +10,9 @@
     "packages/ux-qa"
   ],
   "scripts": {
-    "doctor": "bash scripts/ci-local.sh doctor",
-    "fast": "bash scripts/ci-local.sh fast",
-    "ci": "bash scripts/ci-local.sh ci",
-    "security": "bash scripts/ci-local.sh security",
-    "conformance": "bash scripts/ci-local.sh conformance",
-    "jankurai-local": "bash scripts/ci-local.sh jankurai-local",
+    "doctor": "npm run typecheck",
+    "fast": "npm run typecheck && npm run ux-qa:build && npm run ux-qa:test",
+    "ci": "npm run fast && npm run test",
     "build": "npm --workspace @jmcp/cockpit run build",
     "typecheck": "npm --workspace @jmcp/cockpit run typecheck",
     "lint": "npm --workspace @jmcp/cockpit run lint",
