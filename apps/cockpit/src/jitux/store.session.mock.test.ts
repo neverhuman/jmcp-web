@@ -111,6 +111,8 @@ describe("JITUX deck store session flow", () => {
     expect(deckStore.getSnapshot().caption).toBe(
       "BROKER is driving the Mission Deck with live frames and ranked insights.",
     );
+    expect(deckStore.getSnapshot().sessionId).toBe("jitux_retry");
+    expect(deckStore.getSnapshot().lastSeq).toBe(frames[0].seq);
 
     stop();
   });

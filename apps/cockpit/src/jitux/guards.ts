@@ -1,5 +1,6 @@
 import type {
   DeckRankReason,
+  DeckCardType,
   EvidenceRef,
   FrameSource,
   JituxFrame,
@@ -9,6 +10,7 @@ import type {
   PaneVM,
   PreparedAction,
   PreparedTab,
+  SourceBadge,
 } from "./types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -28,13 +30,15 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[]): value i
 }
 
 const sources: FrameSource[] = ["frontend", "projection", "agent", "adapter", "replay", "approval"];
-const kinds: PaneKind[] = ["queue", "jeryu", "jailgun", "jekko", "evidence", "replay", "approval", "adapter_health", "memory", "autonomy"];
+const kinds: PaneKind[] = ["queue", "jeryu", "jailgun", "jekko", "evidence", "replay", "approval", "adapter_health", "memory", "autonomy", "report", "graph", "task"];
 const risks: PaneRisk[] = ["low", "medium", "high"];
 const agedPaneStatus: PaneStatus = `${"sta"}${"le"}`;
 const statuses: PaneStatus[] = ["predicted", "incubating", "warm", "active", agedPaneStatus, "discarded"];
 const lods = ["ghost", "preview", "focus"] as const;
 const tabs: PreparedTab[] = ["evidence", "replay", "systems", "actions", "raw"];
 const safety = ["read_only", "bounded_auto", "approval_required", "manual_only"] as const;
+const cardTypes: DeckCardType[] = ["repo", "worker", "terminal", "issue", "taskDraft", "approval", "repoCreateDraft", "evidence", "cluster", "degradedSource", "report", "graph"];
+const sourceStates: SourceBadge["status"][] = ["live", "cached", "degraded", "draft"];
 
 function isFrameBase(value: Record<string, unknown>): boolean {
   return (
@@ -52,6 +56,15 @@ function isCounter(value: unknown): value is { label: string; value: number | st
   return isRecord(value) && isString(value.label) && (isString(value.value) || isNumber(value.value));
 }
 
+function isSourceBadge(value: unknown): value is SourceBadge {
+  return (
+    isRecord(value) &&
+    isString(value.source) &&
+    oneOf(value.status, sourceStates) &&
+    (value.reason === undefined || isString(value.reason))
+  );
+}
+
 export function isPaneVM(value: unknown): value is PaneVM {
   if (!isRecord(value) || !isRecord(value.preview)) return false;
   return (
@@ -64,6 +77,10 @@ export function isPaneVM(value: unknown): value is PaneVM {
     oneOf(value.lod, lods) &&
     isNumber(value.confidence) &&
     (value.freshnessMs === undefined || isNumber(value.freshnessMs)) &&
+    (value.cardType === undefined || oneOf(value.cardType, cardTypes)) &&
+    Array.isArray(value.sourceBadges) &&
+    value.sourceBadges.length > 0 &&
+    value.sourceBadges.every(isSourceBadge) &&
     isString(value.preview.headline) &&
     Array.isArray(value.preview.chips) &&
     value.preview.chips.every(isString) &&

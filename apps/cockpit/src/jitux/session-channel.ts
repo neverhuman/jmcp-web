@@ -22,6 +22,14 @@ export type DeckSessionTraceProbe = {
   latencyMs?: number;
 };
 
+export type DeckTurnTraceContext = {
+  prompt?: string;
+  route?: string;
+  firstFrameReceived?: boolean;
+  acceptedFrames?: number;
+  rejectedFrames?: number;
+};
+
 export type DeckLiveSessionCallbacks = {
   onOpening: () => void;
   onOpen: (descriptor: DeckSessionDescriptor) => void;
@@ -43,14 +51,25 @@ function isAbortError(error: unknown): boolean {
   );
 }
 
-export function createDeckTrace(runtime: RuntimeState, status: DeckSessionTraceProbe["status"], source: FrameSource): DeckSessionTraceProbe[] {
+export function createDeckTrace(
+  runtime: RuntimeState,
+  status: DeckSessionTraceProbe["status"],
+  source: FrameSource,
+  context: DeckTurnTraceContext = {},
+): DeckSessionTraceProbe[] {
+  const liveSources = runtime.sourceStatuses.filter((item) => item.state === "live").length;
+  const degradedSources = runtime.sourceStatuses.length - liveSources;
+  const acceptedFrames = context.acceptedFrames ?? 0;
+  const rejectedFrames = context.rejectedFrames ?? 0;
   return [
-    { id: "session", label: "session", source, status, latencyMs: status === "ready" ? 12 : undefined },
-    { id: "attention", label: "attention", source: "projection", status: runtime.attentionPackets.length > 0 ? "ready" : "degraded", latencyMs: 18 },
-    { id: "work-orders", label: "work orders", source: "projection", status: runtime.workItems.length > 0 ? "ready" : "degraded", latencyMs: 24 },
-    { id: "approvals", label: "approvals", source: "approval", status: runtime.approvalRequests.length > 0 ? "ready" : "queued", latencyMs: 31 },
-    { id: "adapters", label: "adapters", source: "adapter", status: runtime.systems.some((system) => system.health === "degraded" || system.health === "blocked") ? "degraded" : "ready", latencyMs: 33 },
-    { id: "replay", label: "replay", source: "replay", status: runtime.replayEvents.length > 0 ? "ready" : "queued", latencyMs: 39 },
+    { id: "prompt", label: context.prompt?.trim() ? "prompt" : "prompt empty", source: "frontend", status: context.prompt?.trim() ? "ready" : "queued" },
+    { id: "route", label: context.route ? `route ${context.route}` : "route pending", source: "agent", status: context.route ? "ready" : "queued" },
+    { id: "jitux-session", label: "JITUX session", source, status, latencyMs: status === "ready" ? 12 : undefined },
+    { id: "first-frame", label: context.firstFrameReceived ? "first frame" : "first frame pending", source: "projection", status: context.firstFrameReceived ? "ready" : status },
+    { id: "accepted-frames", label: `accepted ${acceptedFrames}`, source: "projection", status: acceptedFrames > 0 ? "ready" : "queued" },
+    { id: "rejected-frames", label: `rejected ${rejectedFrames}`, source: "projection", status: rejectedFrames > 0 ? "degraded" : "ready" },
+    { id: "source-diagnostics", label: `${liveSources} live/${degradedSources} degraded`, source: "adapter", status: degradedSources > 0 ? "degraded" : "ready", latencyMs: 33 },
+    { id: "llm-tools-tts", label: "LLM/tool/TTS", source: "agent", status: runtime.voiceThreads.length > 0 || runtime.approvalRequests.length > 0 ? "ready" : "queued", latencyMs: 39 },
   ];
 }
 
