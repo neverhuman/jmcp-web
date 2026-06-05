@@ -78,7 +78,9 @@ export function isPaneVM(value: unknown): value is PaneVM {
     isNumber(value.confidence) &&
     (value.freshnessMs === undefined || isNumber(value.freshnessMs)) &&
     (value.cardType === undefined || oneOf(value.cardType, cardTypes)) &&
-    (value.sourceBadges === undefined || (Array.isArray(value.sourceBadges) && value.sourceBadges.every(isSourceBadge))) &&
+    Array.isArray(value.sourceBadges) &&
+    value.sourceBadges.length > 0 &&
+    value.sourceBadges.every(isSourceBadge) &&
     isString(value.preview.headline) &&
     Array.isArray(value.preview.chips) &&
     value.preview.chips.every(isString) &&

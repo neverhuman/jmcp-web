@@ -124,7 +124,12 @@ function createStore() {
     const route = routeNowCommand(prompt);
     setState({
       ...applyFramesTo(initialDeckState, frames),
-      trace: createDeckTrace(runtime, "degraded", "frontend"),
+      trace: createDeckTrace(runtime, "degraded", "frontend", {
+        prompt,
+        route: route.title,
+        acceptedFrames: frames.length,
+        firstFrameReceived: frames.length > 0,
+      }),
       caption: `${route.title} is visible while the broker session opens.`,
       streamStatus: "degraded",
       streamUrl: null,
@@ -135,10 +140,17 @@ function createStore() {
   };
 
   const markStreamDegraded = (caption: string) => {
+    const route = routeNowCommand(latestPrompt);
     setState({
       ...state,
       streamStatus: "degraded",
-      trace: latestRuntime ? createDeckTrace(latestRuntime, "degraded", "frontend") : state.trace,
+      trace: latestRuntime
+        ? createDeckTrace(latestRuntime, "degraded", "frontend", {
+            prompt: latestPrompt,
+            route: route.title,
+            acceptedFrames: state.lastSeq,
+          })
+        : state.trace,
       caption,
     });
   };
@@ -152,7 +164,11 @@ function createStore() {
         streamStatus: "opening",
         streamUrl: null,
         wsUrl: null,
-        trace: createDeckTrace(runtime, "degraded", "frontend"),
+        trace: createDeckTrace(runtime, "degraded", "frontend", {
+          prompt: latestPrompt,
+          route: routeNowCommand(latestPrompt).title,
+          acceptedFrames: state.lastSeq,
+        }),
         caption: `Broker session opening for ${routeNowCommand(latestPrompt).title}.`,
       });
     },
@@ -167,13 +183,20 @@ function createStore() {
     },
     onFrame: (frame, descriptor) => {
       const runtime = latestRuntime;
-      applyFrames([frame]);
+      const nextState = reduceDeckFrame(state, frame);
       setState({
-        ...state,
+        ...nextState,
         streamStatus: "live",
         streamUrl: descriptor.streamUrl,
         wsUrl: descriptor.wsUrl,
-        trace: runtime ? createDeckTrace(runtime, "ready", "projection") : state.trace,
+        trace: runtime
+          ? createDeckTrace(runtime, "ready", "projection", {
+              prompt: latestPrompt,
+              route: routeNowCommand(latestPrompt).title,
+              firstFrameReceived: true,
+              acceptedFrames: nextState.lastSeq,
+            })
+          : nextState.trace,
         caption: "BROKER is driving the Mission Deck with live frames and ranked insights.",
       });
     },

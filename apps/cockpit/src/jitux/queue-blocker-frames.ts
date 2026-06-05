@@ -8,6 +8,7 @@ import type {
   PaneRisk,
   PaneVM,
   PreparedAction,
+  SourceBadge,
 } from "./types";
 
 const emittedAt = "2026-06-03T15:00:00.000Z";
@@ -50,14 +51,24 @@ function pane(
   headline: string,
   chips: string[],
   counters: PaneVM["preview"]["counters"],
+  sourceBadges: SourceBadge[],
 ): PaneVM {
   return {
     id, kind, title, rank, risk, status, lod,
     confidence: Math.max(0.55, 0.96 - rank * 0.08),
     freshnessMs: rank * 15000,
+    sourceBadges,
     preview: { headline, chips, counters },
     preparedTabs: ["evidence", "replay", "systems", "actions", "raw"],
   };
+}
+
+function sourceBadge(runtime: RuntimeState, key: string): SourceBadge {
+  const status = runtime.sourceStatuses.find((item) => item.key === key);
+  if (!status) {
+    return { source: key, status: "cached", reason: "source status unavailable" };
+  }
+  return { source: status.key, status: status.state, reason: status.reason };
 }
 
 function actionsFor(blockedWork: WorkItem | undefined, approval: ApprovalRequest | undefined): PreparedAction[] {
@@ -130,6 +141,7 @@ export function createQueueBlockerFrames(runtime: RuntimeState, sessionId = "fro
         { label: "urgent", value: urgent },
         { label: "evidence", value: blockedWork?.evidence ?? 0 },
       ],
+      [sourceBadge(runtime, "work-orders"), sourceBadge(runtime, "attention")],
     ),
     pane(
       "approval_gate",
@@ -145,6 +157,7 @@ export function createQueueBlockerFrames(runtime: RuntimeState, sessionId = "fro
         { label: "pending", value: runtime.approvalRequests.filter((request) => request.state === "pending").length },
         { label: "expires", value: approval?.expires ?? "n/a" },
       ],
+      [sourceBadge(runtime, "approvals"), sourceBadge(runtime, "approval-challenges")],
     ),
     pane(
       "adapter_health",
@@ -160,6 +173,7 @@ export function createQueueBlockerFrames(runtime: RuntimeState, sessionId = "fro
         { label: "degraded", value: degradedSystems },
         { label: "tools", value: runtime.toolAssets.length },
       ],
+      [sourceBadge(runtime, "adapters"), sourceBadge(runtime, "ecosystem")],
     ),
     pane(
       "replay_lens",
@@ -175,6 +189,7 @@ export function createQueueBlockerFrames(runtime: RuntimeState, sessionId = "fro
         { label: "events", value: runtime.replayEvents.length },
         { label: "freshness", value: "current" },
       ],
+      [sourceBadge(runtime, "replay"), sourceBadge(runtime, "evidence")],
     ),
     pane(
       "jailgun_runs",
@@ -190,6 +205,7 @@ export function createQueueBlockerFrames(runtime: RuntimeState, sessionId = "fro
         { label: "captures", value: 0 },
         { label: "risk", value: "low" },
       ],
+      [{ source: "jailgun", status: "cached", reason: "run capture is predicted until a live run source emits" }],
     ),
   ];
 

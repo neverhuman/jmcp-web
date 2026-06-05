@@ -31,6 +31,7 @@ const pane: PaneVM = {
   lod: "ghost",
   confidence: 0.9,
   freshnessMs: 0,
+  sourceBadges: [{ source: "projection", status: "live" }],
   preview: {
     headline: "Finding blocked work.",
     chips: ["warming"],
@@ -68,6 +69,19 @@ describe("JITUX guards and reducer", () => {
       ),
     ).toBe(true);
     expect(isJituxFrame({ type: "focus.change", reason: { score: "bad" } })).toBe(false);
+  });
+
+  it("rejects panes that are not source-backed", () => {
+    const { sourceBadges: _sourceBadges, ...paneWithoutSource } = pane;
+    expect(
+      isJituxFrame(
+        frame({
+          type: "card.ghost",
+          seq: 2,
+          pane: paneWithoutSource as PaneVM,
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("reduces ghost, rank, focus, evidence, action, and done frames", () => {
