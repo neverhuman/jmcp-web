@@ -175,6 +175,38 @@ describe("JITUX guards and reducer", () => {
     expect(secondSession.lastSeq).toBe(1);
   });
 
+  it("clears pane state when a backend session replaces a primed fallback session", () => {
+    const primed = reduceJituxFrame(
+      reduceJituxFrame(
+        initialJituxState,
+        frame({
+          type: "deck.patch",
+          seq: 1,
+          deck: { title: "Fallback session", active: true, mode: "mission_deck" },
+        }),
+      ),
+      frame({ type: "card.ghost", seq: 2, pane }),
+    );
+    expect(Object.keys(primed.panes)).toEqual([pane.id]);
+
+    const backend = reduceJituxFrame(primed, {
+      ...frame({
+        type: "deck.patch",
+        seq: 1,
+        deck: { title: "Backend session", active: true, mode: "mission_deck" },
+      }),
+      sessionId: "jitux_backend",
+      frameId: "jitux_backend.1",
+    });
+
+    expect(backend.sessionId).toBe("jitux_backend");
+    expect(backend.title).toBe("Backend session");
+    expect(backend.panes).toEqual({});
+    expect(backend.paneOrder).toEqual([]);
+    expect(backend.evidenceByPane).toEqual({});
+    expect(backend.actionsByPane).toEqual({});
+  });
+
   it("tolerates a focus.change for an unknown pane without crashing or resolving a focus pane", () => {
     const deckPatch = reduceJituxFrame(
       initialJituxState,

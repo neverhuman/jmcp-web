@@ -20,7 +20,8 @@ function shouldIgnore(state: JituxState, frame: JituxFrame): boolean {
 }
 
 function withBase(state: JituxState, frame: JituxFrame): JituxState {
-  return { ...state, sessionId: frame.sessionId, lastSeq: frame.seq, error: null };
+  const nextBase = state.sessionId !== null && state.sessionId !== frame.sessionId ? initialJituxState : state;
+  return { ...nextBase, sessionId: frame.sessionId, lastSeq: frame.seq, error: null };
 }
 
 function upsertPane(state: JituxState, pane: PaneVM): JituxState {
