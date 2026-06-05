@@ -13,12 +13,9 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.6.1",
     "lucide-react": "^0.475.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "three": "^0.184.0"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@playwright/test": "1.60.0",

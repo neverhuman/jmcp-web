@@ -2,7 +2,6 @@ import { ChevronsDownUp, ChevronsUpDown, Crosshair, ListFilter } from "lucide-re
 import { useEffect, useState } from "react";
 import { deckStore, useDeckSnapshot } from "../store";
 import { AnswerCaptionStream } from "./AnswerCaptionStream";
-import { DataLoom } from "./DataLoom";
 import { DeckViewport } from "./DeckViewport";
 import { TraceRibbon } from "./TraceRibbon";
 
@@ -24,7 +23,7 @@ export function NowCommandDeck() {
 
   return (
     <section className="command-deck" data-mobile-clearance="voice-bar" data-view-mode={viewMode} aria-label="AIUX Mission Deck">
-      <DataLoom />
+      <div className="data-loom" aria-hidden="true" />
       <div className="command-deck-surface">
         <header className="command-deck-head">
           <div>
