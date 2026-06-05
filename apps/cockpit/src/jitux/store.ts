@@ -155,6 +155,26 @@ function createStore() {
     });
   };
 
+  const acceptLiveFrame = (frame: JituxFrame, descriptor: { streamUrl: string; wsUrl: string }) => {
+    const runtime = latestRuntime;
+    const nextState = reduceDeckFrame(state, frame);
+    setState({
+      ...nextState,
+      streamStatus: "live",
+      streamUrl: descriptor.streamUrl,
+      wsUrl: descriptor.wsUrl,
+      trace: runtime
+        ? createDeckTrace(runtime, "ready", "projection", {
+            prompt: latestPrompt,
+            route: routeNowCommand(latestPrompt).title,
+            firstFrameReceived: true,
+            acceptedFrames: nextState.lastSeq,
+          })
+        : nextState.trace,
+      caption: "BROKER is driving the Mission Deck with live frames and ranked insights.",
+    });
+  };
+
   const liveSession = createDeckLiveSession({
     onOpening: () => {
       const runtime = latestRuntime;
@@ -182,23 +202,7 @@ function createStore() {
       });
     },
     onFrame: (frame, descriptor) => {
-      const runtime = latestRuntime;
-      const nextState = reduceDeckFrame(state, frame);
-      setState({
-        ...nextState,
-        streamStatus: "live",
-        streamUrl: descriptor.streamUrl,
-        wsUrl: descriptor.wsUrl,
-        trace: runtime
-          ? createDeckTrace(runtime, "ready", "projection", {
-              prompt: latestPrompt,
-              route: routeNowCommand(latestPrompt).title,
-              firstFrameReceived: true,
-              acceptedFrames: nextState.lastSeq,
-            })
-          : nextState.trace,
-        caption: "BROKER is driving the Mission Deck with live frames and ranked insights.",
-      });
+      acceptLiveFrame(frame, descriptor);
     },
     onSessionUnavailable: () =>
       markStreamDegraded("Broker session unavailable; retrying to keep the Mission Deck broker-driven."),
