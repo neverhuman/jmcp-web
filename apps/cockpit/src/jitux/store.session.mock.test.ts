@@ -115,6 +115,37 @@ describe("JITUX deck store session flow", () => {
     stop();
   });
 
+  it("returns to degraded and re-arms the retry when the live stream errors after a frame", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(descriptorResponse("jitux_drop"))));
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+    act(() => deckStore.igniteQueueBlockers(createFixtureRuntime()));
+
+    const stop = deckStore.startLiveQueueBlockers();
+    await vi.waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+
+    const frames = createQueueBlockerFrames(createFixtureRuntime(), "jitux_drop");
+    act(() => MockEventSource.instances[0].emitFrame(frames[0]));
+    expect(deckStore.getSnapshot().streamStatus).toBe("live");
+
+    // Stream error after a successful frame: deck must degrade, not stay live-frozen.
+    act(() => MockEventSource.instances[0].emitError());
+    expect(deckStore.getSnapshot().streamStatus).toBe("degraded");
+    expect(deckStore.getSnapshot().caption).toBe(
+      "Broker stream unavailable; retrying to keep the Mission Deck broker-driven.",
+    );
+    expect(MockEventSource.instances[0].closed).toBe(true);
+
+    // The retry is re-armed and opens a fresh stream after the backoff window.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(MockEventSource.instances).toHaveLength(2));
+
+    stop();
+  });
+
   it("stops the mock stream on barge-in and ignores later frames", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(descriptorResponse("jitux_barge_in"))));
     vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);

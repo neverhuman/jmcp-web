@@ -1,14 +1,32 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createDeckLiveSession,
   getDeckSessionDescriptor,
   publishDeckSessionDescriptor,
   resetDeckSessionChannelForTests,
   subscribeDeckSessionDescriptor,
 } from "./session-channel";
+import { MockEventSource } from "./mock-event-source";
+import { createQueueBlockerFrames } from "./queue-blocker-frames";
+import { createFixtureRuntime } from "../runtime";
 
 afterEach(() => {
   resetDeckSessionChannelForTests();
+  MockEventSource.reset();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
+
+function descriptorResponse(sessionId = "jitux_live"): Response {
+  return new Response(
+    JSON.stringify({
+      sessionId,
+      streamUrl: `/jitux/sessions/${sessionId}/stream`,
+      wsUrl: `/jitux/sessions/${sessionId}/ws`,
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
 
 describe("JITUX session channel", () => {
   it("publishes descriptors to multiple subscribers and supports unsubscribe", () => {
@@ -55,6 +73,47 @@ describe("JITUX session channel", () => {
     });
     unsubscribeFirst();
     unsubscribeSecond();
+  });
+});
+
+describe("JITUX live session stream-error recovery", () => {
+  it("degrades and re-arms the retry when the stream errors after a live frame", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(descriptorResponse("jitux_live"))));
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+
+    const onStreamUnavailable = vi.fn();
+    const session = createDeckLiveSession({
+      onOpening: vi.fn(),
+      onOpen: vi.fn(),
+      onFrame: vi.fn(),
+      onSessionUnavailable: vi.fn(),
+      onStreamUnavailable,
+    });
+
+    const stop = session.start();
+
+    // Wait for the descriptor fetch to resolve and the EventSource to open.
+    await vi.waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+
+    const frames = createQueueBlockerFrames(createFixtureRuntime(), "jitux_live");
+    const firstStream = MockEventSource.instances[0];
+
+    // A successful live frame moves the deck to "live".
+    firstStream.emitFrame(frames[0]);
+    expect(onStreamUnavailable).not.toHaveBeenCalled();
+
+    // A stream error AFTER a frame must degrade the deck and re-arm the retry,
+    // instead of leaving it live-but-frozen.
+    firstStream.emitError();
+    expect(onStreamUnavailable).toHaveBeenCalledTimes(1);
+    expect(firstStream.closed).toBe(true);
+
+    // The re-armed retry reopens a fresh stream after the backoff window.
+    await vi.advanceTimersByTimeAsync(1500);
+    await vi.waitFor(() => expect(MockEventSource.instances).toHaveLength(2));
+
+    stop();
   });
 });
 

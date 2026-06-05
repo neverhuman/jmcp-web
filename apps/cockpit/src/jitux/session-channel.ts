@@ -101,7 +101,12 @@ export function createDeckLiveSession(callbacks: DeckLiveSessionCallbacks) {
           callbacks.onFrame(frame, descriptor);
         },
         () => {
-          if (controller.signal.aborted || currentToken !== token || receivedFrame) return;
+          if (controller.signal.aborted || currentToken !== token) return;
+          // An error after a successful frame means the live stream broke; tear it
+          // down, mark the deck degraded, and re-arm the retry so the deck does not
+          // sit "live" but frozen. Pre-frame errors keep the original transient-retry
+          // behavior.
+          receivedFrame = false;
           closeStream?.();
           closeStream = null;
           callbacks.onStreamUnavailable();

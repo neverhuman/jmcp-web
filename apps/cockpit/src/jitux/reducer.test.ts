@@ -161,6 +161,28 @@ describe("JITUX guards and reducer", () => {
     expect(secondSession.lastSeq).toBe(1);
   });
 
+  it("tolerates a focus.change for an unknown pane without crashing or resolving a focus pane", () => {
+    const deckPatch = reduceJituxFrame(
+      initialJituxState,
+      frame({
+        type: "deck.patch",
+        seq: 1,
+        deck: { title: "Active deck", active: true, mode: "mission_deck" },
+      }),
+    );
+
+    const focused = reduceJituxFrame(
+      deckPatch,
+      frame({ type: "focus.change", seq: 2, paneId: "pane:missing", reason }),
+    );
+
+    // The frame is recorded, but no PaneVM resolves -> the focus pane stays warming.
+    expect(focused.focusPaneId).toBe("pane:missing");
+    expect(focused.panes["pane:missing"]).toBeUndefined();
+    expect(Object.keys(focused.panes)).toHaveLength(0);
+    expect(focused.error).toBeNull();
+  });
+
   it("keeps generated Mission Deck frames strictly sequenced and replay-stable", () => {
     const frames = createQueueBlockerFrames(createFixtureRuntime(), "jitux_sequence");
     const state = frames.reduce(reduceJituxFrame, initialDeckState);
