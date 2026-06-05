@@ -15,8 +15,13 @@
   position: absolute;
   inset: 0;
   z-index: 0;
-  opacity: 0.55;
+  opacity: 0.48;
   pointer-events: none;
+  background:
+    repeating-linear-gradient(115deg, rgba(124, 60, 255, 0.08) 0 1px, transparent 1px 30px),
+    repeating-linear-gradient(25deg, rgba(31, 140, 130, 0.08) 0 1px, transparent 1px 34px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(210, 218, 222, 0.22));
+  transform: skewY(-2deg) scale(1.04);
 }
 
 .command-deck-surface {
