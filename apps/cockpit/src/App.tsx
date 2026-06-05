@@ -26,7 +26,8 @@ import {
 } from "./views";
 import type { ViewId } from "./types";
 
-const apiUrl = import.meta.env.VITE_JMCP_API_URL ?? "http://127.0.0.1:18877";
+const apiUrl = import.meta.env.VITE_JMCP_API_URL ?? "/jmcp";
+const apiBase = apiUrl.replace(/\/+$/, "");
 
 const icons = {
   now: Gauge,
@@ -73,7 +74,7 @@ function App() {
     }
 
     let cancelled = false;
-    const events = new EventSource(`${apiUrl}/events`);
+    const events = new EventSource(`${apiBase}/events`);
     const refresh = (event: MessageEvent<string>) => {
       if (!hasValidEventBatch(event.data)) {
         return;

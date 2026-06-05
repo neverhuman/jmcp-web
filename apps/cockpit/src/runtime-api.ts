@@ -1,9 +1,13 @@
 import type {
   AttentionLevel,
+  AgentSessionSummary,
+  AgentSummary,
   ControlPlaneSummary,
   Health,
+  ProcessObservationSummary,
   MemoryState,
   Risk,
+  RuntimeIncident,
   ScoreFreshness,
   SystemNode,
   ToolAsset,
@@ -260,7 +264,11 @@ export type ApiUniverse = {
 };
 
 export type ApiControlPlane = ControlPlaneSummary;
+export type ApiAgentSummary = AgentSummary;
+export type ApiAgentSession = AgentSessionSummary;
+export type ApiProcessObservation = ProcessObservationSummary;
+export type ApiIncident = RuntimeIncident;
 
 export type EventBatch = Array<{ id?: number; event_type?: string }>;
 
-export { isAdapters, isApprovalArray, isApprovalChallengeArray, isAttentionPacketArray, isControlPlane, isEcosystem, isEventBatch, isEvidenceArray, isFleetBoard, isHealthResponse, isMemoryProposalArray, isReplay, isSystemArray, isUniverse, isVoiceThreadArray, isWorkOrderArray } from "./runtime-api-guards";
+export { isAdapters, isAgentSessionArray, isAgentSummaryArray, isApprovalArray, isApprovalChallengeArray, isAttentionPacketArray, isControlPlane, isEcosystem, isEventBatch, isEvidenceArray, isFleetBoard, isHealthResponse, isIncidentArray, isMemoryProposalArray, isProcessObservationArray, isReplay, isSystemArray, isUniverse, isVoiceThreadArray, isWorkOrderArray } from "./runtime-api-guards";

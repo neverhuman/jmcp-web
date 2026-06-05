@@ -71,6 +71,79 @@ export interface ControlPlaneStream {
   interactiveOnly: boolean;
 }
 
+export type RuntimeSourceState = "live" | "degraded";
+
+export interface RuntimeSourceStatus {
+  key: string;
+  label: string;
+  state: RuntimeSourceState;
+  reason?: string;
+}
+
+export interface AgentSummary {
+  agentId: string;
+  lastSeq: number;
+  backlogLen: number;
+}
+
+export type AgentSessionStatus =
+  | "starting"
+  | "running"
+  | "idle"
+  | "waiting"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface AgentSessionSummary {
+  id: string;
+  sessionKey: string;
+  provider: string;
+  subject?: string | null;
+  status: AgentSessionStatus;
+  processKey?: string | null;
+  streamUri?: string | null;
+  startedAt: string;
+  updatedAt: string;
+}
+
+export type ProcessObservationStatus =
+  | "starting"
+  | "running"
+  | "idle"
+  | "stuck"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface ProcessObservationSummary {
+  id: string;
+  processKey: string;
+  command?: string | null;
+  status: ProcessObservationStatus;
+  pty?: string | null;
+  stuck: boolean;
+  diagnosticClass?: string | null;
+  startedAt?: string | null;
+  updatedAt: string;
+}
+
+export type IncidentSeverity = "info" | "warning" | "major" | "critical";
+export type IncidentState = "open" | "investigating" | "quarantined" | "mitigated" | "closed";
+
+export interface RuntimeIncident {
+  id: string;
+  title: string;
+  severity: IncidentSeverity;
+  state: IncidentState;
+  quarantineScope: string;
+  containment: string;
+  relatedWorkOrders: string[];
+  notes: string[];
+  openedAt: string;
+  updatedAt: string;
+}
+
 export interface ControlPlaneSummary {
   generatedAt: string;
   eventWatermark: number;

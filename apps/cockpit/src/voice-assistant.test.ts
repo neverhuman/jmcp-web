@@ -96,6 +96,7 @@ function immediateDeck() {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("stripWakeWord", () => {
@@ -494,14 +495,13 @@ describe("runVoiceTurn fast path", () => {
       ...deck,
     });
 
-    expect(answer).toContain("JMCP is healthy");
+    expect(answer).toBe("JMCP is healthy, with 2 systems connected: jmcpd, jeryu.");
     expect(spoken).toEqual([answer]);
     expect(fetchDouble).toHaveBeenCalledTimes(1);
     expect(fetchDouble.mock.calls[0][0]).toContain("/jmcp/health");
     expect(history[history.length - 1]).toMatchObject({ role: "assistant", content: answer });
-    expect(deck.openDeckSession.mock.invocationCallOrder[0]).toBeLessThan(
-      deck.waitForDeckFrame.mock.invocationCallOrder[0],
-    );
+    expect(deck.openDeckSession).not.toHaveBeenCalled();
+    expect(deck.waitForDeckFrame).not.toHaveBeenCalled();
   });
 
   it("starts deck work before model reasoning", async () => {
@@ -544,8 +544,7 @@ describe("runVoiceTurn fast path", () => {
     expect(events).toEqual(["jitux", "deck_wait", "llm", "speech"]);
   });
 
-  it("holds first speech until a deck frame or timeout releases it", async () => {
-    let releaseDeck = (_value: VoiceJituxDeckReadiness) => {};
+  it("speaks streamed model content without waiting for deck readiness", async () => {
     const deck = {
       openDeckSession: vi.fn(
         (): Promise<VoiceJituxSessionStart> =>
@@ -553,21 +552,21 @@ describe("runVoiceTurn fast path", () => {
       ),
       waitForDeckFrame: vi.fn(
         (): Promise<VoiceJituxDeckReadiness> =>
-          new Promise((resolve) => {
-            releaseDeck = resolve;
-          }),
+          new Promise<VoiceJituxDeckReadiness>(() => undefined),
       ),
     };
-    installFetch((input) => {
-      if (input.includes("/jmcp/health")) {
-        return Promise.resolve(jsonResponse({ ok: true, systems: [{ name: "jmcpd" }] }));
-      }
-      return Promise.reject(new Error(`unexpected fetch: ${input}`));
-    });
+    installFetch(() =>
+      Promise.resolve(
+        streamResponse([
+          'data: {"choices":[{"delta":{"content":"Deck first."}}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+      ),
+    );
     const spoken: string[] = [];
 
     const answer = await runVoiceTurn({
-      command: "status",
+      command: "explain the current mission",
       history: [{ role: "system", content: "system" }],
       signal: new AbortController().signal,
       enqueueSpeech: (text) => spoken.push(text),
@@ -575,16 +574,11 @@ describe("runVoiceTurn fast path", () => {
       ...deck,
     });
 
-    expect(answer).toContain("JMCP is healthy");
-    expect(spoken).toEqual([]);
-    releaseDeck({ kind: "timeout" });
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(answer).toBe("Deck first.");
     expect(spoken).toEqual([answer]);
   });
 
-  it("releases delayed model speech as soon as a useful deck frame arrives", async () => {
-    let releaseDeck = (_value: VoiceJituxDeckReadiness) => {};
+  it("keeps Mission Deck work parallel while first model content speaks", async () => {
     const controller = new AbortController();
     const deck = {
       openDeckSession: vi.fn(
@@ -600,9 +594,7 @@ describe("runVoiceTurn fast path", () => {
       ),
       waitForDeckFrame: vi.fn(
         (): Promise<VoiceJituxDeckReadiness> =>
-          new Promise((resolve) => {
-            releaseDeck = resolve;
-          }),
+          new Promise<VoiceJituxDeckReadiness>(() => undefined),
       ),
     };
     installFetch(() =>
@@ -631,16 +623,13 @@ describe("runVoiceTurn fast path", () => {
     });
 
     expect(answer).toBe("Deck first.");
-    expect(spoken).toEqual([]);
-    releaseDeck({ kind: "frame", sessionId: "jitux_1", frameType: "deck.patch" });
-    await Promise.resolve();
-    await Promise.resolve();
     expect(spoken).toEqual(["Deck first."]);
     expect(speechSignals).toEqual([controller.signal]);
+    expect(deck.openDeckSession).toHaveBeenCalledTimes(1);
+    expect(deck.waitForDeckFrame).toHaveBeenCalledTimes(1);
   });
 
-  it("passes the aborted turn signal when delayed speech is released after barge-in", async () => {
-    let releaseDeck = (_value: VoiceJituxDeckReadiness) => {};
+  it("passes the live turn signal to streamed speech so barge-in cancels playback", async () => {
     const controller = new AbortController();
     const deck = {
       openDeckSession: vi.fn(
@@ -649,22 +638,22 @@ describe("runVoiceTurn fast path", () => {
       ),
       waitForDeckFrame: vi.fn(
         (): Promise<VoiceJituxDeckReadiness> =>
-          new Promise((resolve) => {
-            releaseDeck = resolve;
-          }),
+          new Promise<VoiceJituxDeckReadiness>(() => undefined),
       ),
     };
-    installFetch((input) => {
-      if (input.includes("/jmcp/health")) {
-        return Promise.resolve(jsonResponse({ ok: true, systems: [{ name: "jmcpd" }] }));
-      }
-      return Promise.reject(new Error(`unexpected fetch: ${input}`));
-    });
+    installFetch(() =>
+      Promise.resolve(
+        streamResponse([
+          'data: {"choices":[{"delta":{"content":"Deck first."}}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+      ),
+    );
     const spoken: string[] = [];
     const speechSignals: AbortSignal[] = [];
 
     const answer = await runVoiceTurn({
-      command: "status",
+      command: "explain the current mission",
       history: [{ role: "system", content: "system" }],
       signal: controller.signal,
       enqueueSpeech: (text, signal) => {
@@ -678,14 +667,47 @@ describe("runVoiceTurn fast path", () => {
     });
 
     controller.abort();
-    releaseDeck({ kind: "frame", sessionId: "jitux_1", frameType: "deck.patch" });
-    await Promise.resolve();
-    await Promise.resolve();
 
-    expect(answer).toContain("JMCP is healthy");
+    expect(answer).toBe("Deck first.");
     expect(spoken).toEqual([answer]);
     expect(speechSignals).toEqual([controller.signal]);
     expect(speechSignals[0].aborted).toBe(true);
+  });
+
+  it("speaks a fallback acknowledgement after 300 ms only if the model has not streamed", async () => {
+    vi.useFakeTimers();
+    const deck = immediateDeck();
+    installFetch(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            resolve(
+              streamResponse([
+                'data: {"choices":[{"delta":{"content":"Still checking."}}]}\n\n',
+                "data: [DONE]\n\n",
+              ]),
+            );
+          }, 350);
+        }),
+    );
+    const spoken: string[] = [];
+
+    const answerPromise = runVoiceTurn({
+      command: "explain the current mission",
+      history: [{ role: "system", content: "system" }],
+      signal: new AbortController().signal,
+      enqueueSpeech: (text) => spoken.push(text),
+      setThinking: vi.fn(),
+      ...deck,
+    });
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(spoken).toEqual(["Working on it."]);
+
+    await vi.advanceTimersByTimeAsync(50);
+    const answer = await answerPromise;
+    expect(answer).toBe("Still checking.");
+    expect(spoken).toEqual(["Working on it.", "Still checking."]);
   });
 });
 

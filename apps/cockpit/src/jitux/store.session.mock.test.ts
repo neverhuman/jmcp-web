@@ -27,11 +27,11 @@ describe("JITUX deck store session flow", () => {
     act(() => deckStore.igniteQueueBlockers(createFixtureRuntime()));
 
     const snapshot = deckStore.getSnapshot();
-    expect(snapshot.caption).toBe("Cached snapshot is visible while the broker session opens.");
+    expect(snapshot.caption).toBe("Work Queue Card Deck is visible while the broker session opens.");
     expect(snapshot.streamStatus).toBe("degraded");
-    expect(deckStore.rankedPanes()).toHaveLength(5);
-    expect(deckStore.rankedPanes()[0].title).toBe("Queue blocker");
-    expect(deckStore.cardsForPane("queue_blockers")[0].headline).toContain("blocking");
+    expect(deckStore.rankedPanes()).toHaveLength(3);
+    expect(deckStore.rankedPanes().every((pane) => pane.cardType === "degradedSource")).toBe(true);
+    expect(deckStore.cardsForPane(deckStore.rankedPanes()[0].id)[0].headline).toContain("did not provide live data");
   });
 
   it("flows live frames from the mock EventSource through reducer state", async () => {
@@ -53,7 +53,7 @@ describe("JITUX deck store session flow", () => {
     expect(snapshot.sessionId).toBe("jitux_live");
     expect(snapshot.focusPaneId).toBe("queue_blockers");
     expect(deckStore.rankedPanes()[0].id).toBe("queue_blockers");
-    expect(snapshot.evidenceByPane.queue_blockers).toHaveLength(4);
+    expect(snapshot.evidenceByPane.queue_blockers).toHaveLength(2);
     expect(snapshot.actionsByPane.queue_blockers.length).toBeGreaterThan(0);
     expect(deckStore.cardsForPane("queue_blockers")[0].status).toBe("hydrated");
 
@@ -72,7 +72,7 @@ describe("JITUX deck store session flow", () => {
       ),
     );
     expect(deckStore.getSnapshot().streamStatus).toBe("degraded");
-    expect(deckStore.rankedPanes()).toHaveLength(5);
+    expect(deckStore.rankedPanes()).toHaveLength(3);
   });
 
   it("retries a transient broker session failure and returns to live frames", async () => {
@@ -115,7 +115,7 @@ describe("JITUX deck store session flow", () => {
     stop();
   });
 
-  it("returns to degraded and re-arms the retry when the live stream errors after a frame", async () => {
+  it("keeps a valid finite stream live when EventSource errors after a frame", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(descriptorResponse("jitux_drop"))));
     vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
@@ -128,20 +128,20 @@ describe("JITUX deck store session flow", () => {
     act(() => MockEventSource.instances[0].emitFrame(frames[0]));
     expect(deckStore.getSnapshot().streamStatus).toBe("live");
 
-    // Stream error after a successful frame: deck must degrade, not stay live-frozen.
+    // A finite JITUX backlog stream can surface as EventSource "error" after
+    // valid frames. Keep the live deck stable instead of showing broker failure.
     act(() => MockEventSource.instances[0].emitError());
-    expect(deckStore.getSnapshot().streamStatus).toBe("degraded");
+    expect(deckStore.getSnapshot().streamStatus).toBe("live");
     expect(deckStore.getSnapshot().caption).toBe(
-      "Broker stream unavailable; retrying to keep the Mission Deck broker-driven.",
+      "BROKER is driving the Mission Deck with live frames and ranked insights.",
     );
-    expect(MockEventSource.instances[0].closed).toBe(true);
+    expect(MockEventSource.instances[0].closed).toBe(false);
 
-    // The retry is re-armed and opens a fresh stream after the backoff window.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1500);
       await Promise.resolve();
     });
-    await vi.waitFor(() => expect(MockEventSource.instances).toHaveLength(2));
+    expect(MockEventSource.instances).toHaveLength(1);
 
     stop();
   });

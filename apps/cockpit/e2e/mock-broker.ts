@@ -1,14 +1,13 @@
 import type { Page, Route } from "@playwright/test";
 
-// Fully-mocked broker for cockpit E2E. No live :18877 is ever contacted: every
+// Fully-mocked broker for cockpit E2E. No live JMCP API is ever contacted: every
 // JMCP REST call is fulfilled by page.route, and the SSE/EventSource transport
 // is replaced by an in-page stub installed via addInitScript so deck frames and
 // /events frames can be emitted from injected fixtures.
 //
-// The REST loader (src/runtime.ts) hits `${VITE_JMCP_API_URL ?? "http://127.0.0.1:18877"}<path>`
-// while the deck client (src/jitux/client.ts) hits the same-origin `/jmcp<path>`
-// proxy. To cover both, routes are matched by trailing path glob (e.g. **/health),
-// which matches the absolute 18877 URL and the /jmcp-proxied URL alike.
+// The REST loader and deck client both default to the same-origin `/jmcp<path>`
+// proxy. To cover explicit absolute API overrides too, routes are matched by
+// trailing path glob (e.g. **/health).
 
 export type RestMode = "ok" | "empty" | "error";
 
@@ -31,6 +30,10 @@ function emptyBodies(): Record<string, JsonBody> {
     replay: { events: 0, checkpoints: [] },
     approvals: [],
     "approval-challenges": [],
+    agents: [],
+    "agent-sessions": [],
+    "process-observations": [],
+    incidents: [],
   };
 }
 
@@ -67,6 +70,10 @@ function okBodies(): Record<string, JsonBody> {
     replay: { events: 0, checkpoints: [] },
     approvals: [],
     "approval-challenges": [],
+    agents: [{ agentId: "e2e-agent", lastSeq: 1, backlogLen: 1 }],
+    "agent-sessions": [],
+    "process-observations": [],
+    incidents: [],
   };
 }
 
@@ -232,8 +239,8 @@ export type MockBrokerOptions = {
 };
 
 // Make the page fully offline. Routes every JMCP REST endpoint by trailing path
-// (works for both the absolute 18877 loader and the /jmcp deck proxy) and the
-// jitux session POST, and installs the stub SSE/WS transport.
+// (works for both absolute API overrides and the /jmcp proxy) and the jitux
+// session POST, and installs the stub SSE/WS transport.
 export async function mockBroker(page: Page, options: MockBrokerOptions = {}): Promise<void> {
   const rest: RestMode = options.rest ?? "ok";
   await installStubTransport(page);
@@ -283,6 +290,10 @@ export async function mockBroker(page: Page, options: MockBrokerOptions = {}): P
     "replay",
     "approvals",
     "approval-challenges",
+    "agents",
+    "agent-sessions",
+    "process-observations",
+    "incidents",
   ];
 
   for (const endpoint of endpoints) {

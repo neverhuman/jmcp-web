@@ -87,7 +87,7 @@ describe("NowCommandDeck", () => {
     expect(screen.getByRole("list", { name: "Ranked Mission Deck" })).toBeInTheDocument();
   });
 
-  it("renders the sparse active-deck warming focus state without panes or trace probes", () => {
+  it("renders the sparse active-deck warming state without panes or focus panel", () => {
     act(() =>
       deckStore.dispatch({
         v: 1,
@@ -107,8 +107,8 @@ describe("NowCommandDeck", () => {
     expect(screen.getByRole("heading", { name: "Sparse Mission Deck" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("Mission trace")).getByText("running")).toBeInTheDocument();
     expect(within(screen.getByRole("list", { name: "Ranked Mission Deck" })).queryAllByRole("listitem")).toEqual([]);
-    expect(screen.getByLabelText("Focus pane")).toBeInTheDocument();
-    expect(screen.getByText("Focus is warming")).toBeInTheDocument();
+    expect(screen.getByLabelText("Inner dialogue")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Focus pane")).not.toBeInTheDocument();
   });
 
   it("fans, collapses, and promotes a pane through deck controls", async () => {
@@ -131,7 +131,7 @@ describe("NowCommandDeck", () => {
     expect(deckStore.getSnapshot().focusPaneId).toBe("approval_gate");
     expect(screen.getByLabelText("2. Approval gate")).toHaveAttribute("data-lod", "focus");
     expect(screen.getByLabelText("1. Queue blocker")).toHaveAttribute("data-lod", "preview");
-    expect(screen.getAllByText("Approval gate was promoted by direct user focus.")).toHaveLength(2);
+    expect(screen.getAllByText("Approval gate was promoted by direct user focus.")).toHaveLength(1);
   });
 
   it("auto-ignites purple takeover on the Now rail item", async () => {

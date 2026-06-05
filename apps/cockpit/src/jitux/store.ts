@@ -10,6 +10,8 @@ import {
 } from "./session-channel";
 import { createQueueBlockerFrames, reason, seqFrame } from "./queue-blocker-frames";
 export { createQueueBlockerFrames } from "./queue-blocker-frames";
+import { createNowCommandFrames, dialogueForState } from "./command-scenes";
+import { routeNowCommand } from "./command-router";
 import { getCardsForPane, getRankedPanes } from "./deck-queries";
 import type { JituxFrame, JituxState } from "./types";
 
@@ -29,10 +31,12 @@ export type DeckState = JituxState & {
   streamStatus: DeckStreamStatus;
   streamUrl: string | null;
   wsUrl: string | null;
+  prompt: string;
+  dialogue: string[];
 };
 
 export const initialDeckState: DeckState = {
-  ...initialJituxState, mode: "idle", navState: "idle", generation: 0, trace: [], caption: "", streamStatus: "idle", streamUrl: null, wsUrl: null,
+  ...initialJituxState, mode: "idle", navState: "idle", generation: 0, trace: [], caption: "", streamStatus: "idle", streamUrl: null, wsUrl: null, prompt: "", dialogue: [],
 };
 
 function navStateFor(state: JituxState): DeckNavState {
@@ -60,6 +64,8 @@ function createStore() {
   let state = initialDeckState;
   const listeners = new Set<Listener>();
   let latestRuntime: RuntimeState | null = null;
+  let latestPrompt = "";
+  let idleScanTimer: number | null = null;
 
   const emit = () => {
     for (const listener of listeners) {
@@ -84,15 +90,47 @@ function createStore() {
 
   const applyFrames = (frames: JituxFrame[]) => setState(applyFramesTo(state, frames));
 
-  const primeQueueBlockers = (runtime: RuntimeState) => {
-    const frames = createQueueBlockerFrames(runtime);
+  const stopIdleScan = () => {
+    if (idleScanTimer === null) {
+      return;
+    }
+    window.clearInterval(idleScanTimer);
+    idleScanTimer = null;
+  };
+
+  const startIdleScan = () => {
+    stopIdleScan();
+    idleScanTimer = window.setInterval(() => {
+      if (latestPrompt.trim().length > 0 && routeNowCommand(latestPrompt).intent !== "system_report") {
+        return;
+      }
+      const ranked = getRankedPanes(state);
+      if (ranked.length < 2 || !state.sessionId) {
+        return;
+      }
+      const currentIndex = ranked.findIndex((pane) => pane.id === state.focusPaneId);
+      const nextPane = ranked[(currentIndex + 1) % ranked.length];
+      const frame = seqFrame("focus.change", state.sessionId, state.lastSeq + 1, {
+        paneId: nextPane.id,
+        reason: reason(0.68, `${nextPane.title} surfaced during ambient macro-system scanning.`, { freshness: 0.7, userQueryRelevance: 0.35 }),
+      });
+      setState(reduceDeckFrame(state, frame));
+    }, 4200);
+  };
+
+  const primeCommandDeck = (runtime: RuntimeState, prompt = latestPrompt) => {
+    latestPrompt = prompt;
+    const frames = createNowCommandFrames(runtime, prompt);
+    const route = routeNowCommand(prompt);
     setState({
       ...applyFramesTo(initialDeckState, frames),
       trace: createDeckTrace(runtime, "degraded", "frontend"),
-      caption: "Cached snapshot is visible while the broker session opens.",
+      caption: `${route.title} is visible while the broker session opens.`,
       streamStatus: "degraded",
       streamUrl: null,
       wsUrl: null,
+      prompt,
+      dialogue: dialogueForState(runtime, prompt),
     });
   };
 
@@ -115,7 +153,7 @@ function createStore() {
         streamUrl: null,
         wsUrl: null,
         trace: createDeckTrace(runtime, "degraded", "frontend"),
-        caption: "Broker session opening; waiting for live frames to drive the Mission Deck.",
+        caption: `Broker session opening for ${routeNowCommand(latestPrompt).title}.`,
       });
     },
     onOpen: (descriptor) => {
@@ -124,7 +162,7 @@ function createStore() {
         streamStatus: "opening",
         streamUrl: descriptor.streamUrl,
         wsUrl: descriptor.wsUrl,
-        caption: `Broker session ${descriptor.sessionId} opened; live broker frames are about to drive the Mission Deck.`,
+        caption: `Broker session ${descriptor.sessionId} opened for ${routeNowCommand(latestPrompt).title}.`,
       });
     },
     onFrame: (frame, descriptor) => {
@@ -156,9 +194,9 @@ function createStore() {
     igniteQueueBlockers: (runtime: RuntimeState) => {
       latestRuntime = runtime;
       liveSession.stop();
-      primeQueueBlockers(runtime);
+      primeCommandDeck(runtime, "what is blocking the queue?");
     },
-    startLiveQueueBlockers: (runtime?: RuntimeState) => {
+    startLiveQueueBlockers: (runtime?: RuntimeState, prompt = latestPrompt) => {
       if (runtime) {
         latestRuntime = runtime;
       }
@@ -167,12 +205,13 @@ function createStore() {
         return () => undefined;
       }
       if (!state.active) {
-        primeQueueBlockers(currentRuntime);
+        primeCommandDeck(currentRuntime, prompt);
       }
-      return liveSession.start();
+      return liveSession.startWith({ prompt: prompt || "status report", source: "deck" });
     },
     stopLiveQueueBlockers: (reason: DeckLiveStopReason = "deactivate") => {
       liveSession.stop();
+      stopIdleScan();
       if (reason === "barge_in" && state.active) {
         markStreamDegraded("Live broker stream paused for barge-in; cached snapshot remains visible.");
       }
@@ -186,12 +225,17 @@ function createStore() {
         return;
       }
       liveSession.stop();
-      primeQueueBlockers(runtime);
       const trimmed = (label ?? "").trim();
+      stopIdleScan();
+      primeCommandDeck(runtime, trimmed || "status report");
       if (trimmed.length > 0) {
         setState({ ...state, caption: `Agent investigating: ${trimmed}` });
       }
-      liveSession.start();
+      liveSession.startWith({ prompt: trimmed || "status report", source: "deck" });
+    },
+    startIdleMacroScan: () => {
+      startIdleScan();
+      return stopIdleScan;
     },
     // One reshuffle per reasoning step / tool call: advance focus to the next ranked
     // pane so the deck visibly moves at the speed of the agent's reasoning.
@@ -221,7 +265,9 @@ function createStore() {
     },
     clear: () => {
       liveSession.stop();
+      stopIdleScan();
       latestRuntime = null;
+      latestPrompt = "";
       resetDeckSessionChannelForTests();
       setState(initialDeckState);
     },

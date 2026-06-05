@@ -30,6 +30,9 @@ interface VoiceTurnOptions {
   onAgentStep?: (label: string) => void;
 }
 
+const MODEL_FALLBACK_ACK_MS = 300;
+const MODEL_FALLBACK_ACK = "Working on it.";
+
 type FastReadOnlyTool =
   | "jmcp_status"
   | "list_work_orders"
@@ -85,6 +88,18 @@ export async function runVoiceTurn({
   onAgentStep = () => undefined,
 }: VoiceTurnOptions): Promise<string> {
   history.push({ role: "user", content: command });
+  const fastDecision = detectFastReadOnlyTool(command);
+  if (fastDecision.kind === "local_tool") {
+    onAgentStep(fastDecision.tool);
+    const output = await executeVoiceTool(fastDecision.tool, "{}", signal);
+    if (output.trim().length > 0) {
+      enqueueSpeech(output, signal);
+    }
+    history.push({ role: "assistant", content: output });
+    trimHistory(history);
+    return output;
+  }
+
   const deckSession = openDeckSession(command, signal);
   const deckReadiness = waitForDeckFrame(deckSession, signal, deckFrameTimeoutMs).catch(
     (error: unknown): VoiceJituxDeckReadiness => ({
@@ -92,20 +107,27 @@ export async function runVoiceTurn({
       reason: error instanceof Error ? error.message : "jitux_wait_error",
     }),
   );
-  const enqueueDeckAwareSpeech = createDeckAwareSpeechQueue(
-    enqueueSpeech,
-    deckReadiness,
-    signal,
-  );
-  const fastDecision = detectFastReadOnlyTool(command);
-  if (fastDecision.kind === "local_tool") {
-    onAgentStep(fastDecision.tool);
-    const output = await executeVoiceTool(fastDecision.tool, "{}", signal);
-    enqueueDeckAwareSpeech(output);
-    history.push({ role: "assistant", content: output });
-    trimHistory(history);
-    return output;
-  }
+  void deckReadiness;
+
+  let streamedContentArrived = false;
+  let fallbackAckTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    fallbackAckTimer = null;
+    if (!streamedContentArrived && !signal.aborted) {
+      enqueueSpeech(MODEL_FALLBACK_ACK, signal);
+    }
+  }, MODEL_FALLBACK_ACK_MS);
+  const cancelFallbackAck = () => {
+    if (fallbackAckTimer === null) {
+      return;
+    }
+    clearTimeout(fallbackAckTimer);
+    fallbackAckTimer = null;
+  };
+  const queueSpeech = (text: string) => {
+    if (text.trim().length > 0) {
+      enqueueSpeech(text, signal);
+    }
+  };
 
   let pending = "";
   let firstChunk = true;
@@ -114,7 +136,7 @@ export async function runVoiceTurn({
     if (chunks !== null) {
       let consumed = 0;
       for (const chunk of chunks) {
-        enqueueDeckAwareSpeech(chunk);
+        queueSpeech(chunk);
         consumed += chunk.length;
       }
       pending = pending.slice(consumed);
@@ -123,13 +145,17 @@ export async function runVoiceTurn({
     if (force) {
       const lastSpace = pending.lastIndexOf(" ");
       if (lastSpace > 12) {
-        enqueueDeckAwareSpeech(pending.slice(0, lastSpace));
+        queueSpeech(pending.slice(0, lastSpace));
         pending = pending.slice(lastSpace + 1);
         firstChunk = false;
       }
     }
   };
   const onDelta = (delta: string) => {
+    if (delta.trim().length > 0 && !streamedContentArrived) {
+      streamedContentArrived = true;
+      cancelFallbackAck();
+    }
     pending += delta;
     if (/[,.!?:;]/.test(pending)) {
       flushChunks(false);
@@ -139,30 +165,34 @@ export async function runVoiceTurn({
   };
 
   let lastText = "";
-  for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
-    pending = "";
-    firstChunk = true;
-    onAgentStep("reasoning");
-    const result = await reasonStream(history, onDelta, signal, VOICE_MODEL, VOICE_TOOL_SPECS);
-    enqueueDeckAwareSpeech(pending);
-    pending = "";
-    lastText = result.text;
-    if (result.toolCalls.length === 0) {
-      history.push({ role: "assistant", content: result.text });
-      break;
+  try {
+    for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
+      pending = "";
+      firstChunk = true;
+      onAgentStep("reasoning");
+      const result = await reasonStream(history, onDelta, signal, VOICE_MODEL, VOICE_TOOL_SPECS);
+      queueSpeech(pending);
+      pending = "";
+      lastText = result.text;
+      if (result.toolCalls.length === 0) {
+        history.push({ role: "assistant", content: result.text });
+        break;
+      }
+      const toolCalls: ToolCallFunction[] = result.toolCalls.map((call) => ({
+        id: call.id,
+        type: "function",
+        function: { name: call.name, arguments: call.arguments },
+      }));
+      history.push({ role: "assistant", content: result.text, tool_calls: toolCalls });
+      setThinking();
+      for (const call of result.toolCalls) {
+        onAgentStep(call.name);
+        const output = await executeVoiceTool(call.name, call.arguments, signal);
+        history.push({ role: "tool", tool_call_id: call.id, content: output });
+      }
     }
-    const toolCalls: ToolCallFunction[] = result.toolCalls.map((call) => ({
-      id: call.id,
-      type: "function",
-      function: { name: call.name, arguments: call.arguments },
-    }));
-    history.push({ role: "assistant", content: result.text, tool_calls: toolCalls });
-    setThinking();
-    for (const call of result.toolCalls) {
-      onAgentStep(call.name);
-      const output = await executeVoiceTool(call.name, call.arguments, signal);
-      history.push({ role: "tool", tool_call_id: call.id, content: output });
-    }
+  } finally {
+    cancelFallbackAck();
   }
   trimHistory(history);
   return lastText;
@@ -172,34 +202,4 @@ function trimHistory(history: ChatMessage[]): void {
   if (history.length <= 13) return;
   const trimmed = [history[0], ...history.slice(history.length - 12)];
   history.splice(0, history.length, ...trimmed);
-}
-
-function createDeckAwareSpeechQueue(
-  enqueueSpeech: (text: string, signal?: AbortSignal) => void,
-  deckReadiness: Promise<VoiceJituxDeckReadiness>,
-  signal: AbortSignal,
-): (text: string) => void {
-  let ready = false;
-  const pending: string[] = [];
-  const release = () => {
-    if (ready) {
-      return;
-    }
-    ready = true;
-    for (const text of pending) {
-      enqueueSpeech(text, signal);
-    }
-    pending.splice(0, pending.length);
-  };
-  void deckReadiness.then(release, release);
-  return (text: string) => {
-    if (text.trim().length === 0) {
-      return;
-    }
-    if (ready) {
-      enqueueSpeech(text, signal);
-      return;
-    }
-    pending.push(text);
-  };
 }

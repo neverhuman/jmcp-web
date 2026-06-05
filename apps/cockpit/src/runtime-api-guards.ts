@@ -1,5 +1,7 @@
 import type { AttentionLevel, Health, MemoryState, Risk, SystemNode, VoiceState } from "./types";
 import type {
+  ApiAgentSession,
+  ApiAgentSummary,
   ApiAdapters,
   ApiApproval,
   ApiApprovalChallenge,
@@ -8,7 +10,9 @@ import type {
   ApiEcosystem,
   ApiEvidence,
   ApiFleetBoard,
+  ApiIncident,
   ApiMemoryProposal,
+  ApiProcessObservation,
   ApiReplay,
   ApiUniverse,
   ApiVoiceThread,
@@ -46,6 +50,22 @@ function isAttentionLevel(value: unknown): value is AttentionLevel {
 
 function isVoiceState(value: unknown): value is VoiceState {
   return value === "started" || value === "transcribed" || value === "intent_detected" || value === "confirmation_requested" || value === "confirmed" || value === "denied" || value === "ended";
+}
+
+function isAgentSessionStatus(value: unknown): value is ApiAgentSession["status"] {
+  return value === "starting" || value === "running" || value === "idle" || value === "waiting" || value === "completed" || value === "failed" || value === "cancelled";
+}
+
+function isProcessObservationStatus(value: unknown): value is ApiProcessObservation["status"] {
+  return value === "starting" || value === "running" || value === "idle" || value === "stuck" || value === "completed" || value === "failed" || value === "cancelled";
+}
+
+function isIncidentSeverity(value: unknown): value is ApiIncident["severity"] {
+  return value === "info" || value === "warning" || value === "major" || value === "critical";
+}
+
+function isIncidentState(value: unknown): value is ApiIncident["state"] {
+  return value === "open" || value === "investigating" || value === "quarantined" || value === "mitigated" || value === "closed";
 }
 
 function isMemoryState(value: unknown): value is MemoryState {
@@ -228,6 +248,61 @@ function isAdaptersValue(value: unknown): value is ApiAdapters {
   );
 }
 
+function isAgentSummaryValue(value: unknown): value is ApiAgentSummary {
+  return (
+    isRecord(value) &&
+    isString(value.agentId) &&
+    isNumber(value.lastSeq) &&
+    isNumber(value.backlogLen)
+  );
+}
+
+function isAgentSessionValue(value: unknown): value is ApiAgentSession {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.sessionKey) &&
+    isString(value.provider) &&
+    (value.subject === undefined || value.subject === null || isString(value.subject)) &&
+    isAgentSessionStatus(value.status) &&
+    (value.processKey === undefined || value.processKey === null || isString(value.processKey)) &&
+    (value.streamUri === undefined || value.streamUri === null || isString(value.streamUri)) &&
+    isString(value.startedAt) &&
+    isString(value.updatedAt)
+  );
+}
+
+function isProcessObservationValue(value: unknown): value is ApiProcessObservation {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.processKey) &&
+    (value.command === undefined || value.command === null || isString(value.command)) &&
+    isProcessObservationStatus(value.status) &&
+    (value.pty === undefined || value.pty === null || isString(value.pty)) &&
+    typeof value.stuck === "boolean" &&
+    (value.diagnosticClass === undefined || value.diagnosticClass === null || isString(value.diagnosticClass)) &&
+    (value.startedAt === undefined || value.startedAt === null || isString(value.startedAt)) &&
+    isString(value.updatedAt)
+  );
+}
+
+function isIncidentValue(value: unknown): value is ApiIncident {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.title) &&
+    isIncidentSeverity(value.severity) &&
+    isIncidentState(value.state) &&
+    isString(value.quarantineScope) &&
+    isString(value.containment) &&
+    isStringArray(value.relatedWorkOrders) &&
+    isStringArray(value.notes) &&
+    isString(value.openedAt) &&
+    isString(value.updatedAt)
+  );
+}
+
 export function isHealthResponse(value: unknown): value is { ok: boolean } {
   return isRecord(value) && typeof value.ok === "boolean";
 }
@@ -277,6 +352,22 @@ export function isApprovalChallengeArray(value: unknown): value is ApiApprovalCh
 
 export function isAdapters(value: unknown): value is ApiAdapters {
   return isAdaptersValue(value);
+}
+
+export function isAgentSummaryArray(value: unknown): value is ApiAgentSummary[] {
+  return Array.isArray(value) && value.every(isAgentSummaryValue);
+}
+
+export function isAgentSessionArray(value: unknown): value is ApiAgentSession[] {
+  return Array.isArray(value) && value.every(isAgentSessionValue);
+}
+
+export function isProcessObservationArray(value: unknown): value is ApiProcessObservation[] {
+  return Array.isArray(value) && value.every(isProcessObservationValue);
+}
+
+export function isIncidentArray(value: unknown): value is ApiIncident[] {
+  return Array.isArray(value) && value.every(isIncidentValue);
 }
 
 export { isControlPlane, isEcosystem, isFleetBoard, isUniverse } from "./runtime-api-guards-platform";

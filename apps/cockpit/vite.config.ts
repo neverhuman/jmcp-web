@@ -2,8 +2,39 @@ import { loadEnv } from "vite";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig(({ mode }) => {
+const defaultJmcpTargets = ["http://127.0.0.1:18877", "http://127.0.0.1:18977", "http://127.0.0.1:18879"];
+
+function canConnect(target: string): Promise<boolean> {
+  if (typeof fetch !== "function") {
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    const controller = new AbortController();
+    const timeout = globalThis.setTimeout(() => controller.abort(), 180);
+    fetch(`${target.replace(/\/+$/, "")}/health`, { signal: controller.signal })
+      .then((response) => resolve(response.ok))
+      .catch(() => resolve(false))
+      .finally(() => globalThis.clearTimeout(timeout));
+  });
+}
+
+async function detectJmcpTarget(env: Record<string, string>) {
+  if (env.VITE_JMCP_TARGET) {
+    return env.VITE_JMCP_TARGET;
+  }
+
+  const candidates = [env.JMCP_API_URL, ...defaultJmcpTargets].filter((value): value is string => Boolean(value));
+  for (const candidate of candidates) {
+    if (await canConnect(candidate)) {
+      return candidate;
+    }
+  }
+  return env.JMCP_API_URL ?? defaultJmcpTargets[0];
+}
+
+export default defineConfig(async ({ mode }) => {
   const env = loadEnv(mode, ".", "");
+  const jmcpTarget = await detectJmcpTarget(env);
   const portValue = env.JMCP_COCKPIT_PORT ?? "15873";
   if (!/^[0-9]+$/.test(portValue)) {
     throw new Error(`JMCP_COCKPIT_PORT must be numeric: ${portValue}`);
@@ -45,7 +76,7 @@ export default defineConfig(({ mode }) => {
         // JMCP control-plane API, so the voice agent's tools can read status and
         // take actions same-origin (no CORS; stays on the box).
         "/jmcp": {
-          target: env.VITE_JMCP_TARGET ?? "http://127.0.0.1:18877",
+          target: jmcpTarget,
           changeOrigin: true,
           rewrite: (path: string) => path.replace(/^\/jmcp/, ""),
         },

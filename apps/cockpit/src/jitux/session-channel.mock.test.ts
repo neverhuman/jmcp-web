@@ -77,7 +77,7 @@ describe("JITUX session channel", () => {
 });
 
 describe("JITUX live session stream-error recovery", () => {
-  it("degrades and re-arms the retry when the stream errors after a live frame", async () => {
+  it("keeps a valid finite stream stable when EventSource errors after a live frame", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(descriptorResponse("jitux_live"))));
     vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
@@ -103,17 +103,15 @@ describe("JITUX live session stream-error recovery", () => {
     firstStream.emitFrame(frames[0]);
     expect(onStreamUnavailable).not.toHaveBeenCalled();
 
-    // A stream error AFTER a frame must degrade the deck and re-arm the retry,
-    // instead of leaving it live-but-frozen.
+    // A finite JITUX backlog stream can surface as EventSource "error" after
+    // valid frames. That must not mark the broker unavailable.
     firstStream.emitError();
-    expect(onStreamUnavailable).toHaveBeenCalledTimes(1);
-    expect(firstStream.closed).toBe(true);
+    expect(onStreamUnavailable).not.toHaveBeenCalled();
+    expect(firstStream.closed).toBe(false);
 
-    // The re-armed retry reopens a fresh stream after the backoff window.
     await vi.advanceTimersByTimeAsync(1500);
-    await vi.waitFor(() => expect(MockEventSource.instances).toHaveLength(2));
+    expect(MockEventSource.instances).toHaveLength(1);
 
     stop();
   });
 });
-

@@ -4,6 +4,7 @@ import {
   openDeckSession,
   subscribeToDeckFrames,
   type DeckSessionDescriptor,
+  type OpenDeckSessionRequest,
 } from "./client";
 import type { FrameSource, JituxFrame } from "./types";
 
@@ -58,6 +59,7 @@ export function createDeckLiveSession(callbacks: DeckLiveSessionCallbacks) {
   let abortController: AbortController | null = null;
   let closeStream: (() => void) | null = null;
   let retryTimer: number | null = null;
+  let request: OpenDeckSessionRequest = QUEUE_BLOCKERS_DECK_SESSION_REQUEST;
   let token = 0;
 
   const clearRetryTimer = () => {
@@ -87,7 +89,7 @@ export function createDeckLiveSession(callbacks: DeckLiveSessionCallbacks) {
     callbacks.onOpening();
 
     try {
-      const descriptor = await openDeckSession(QUEUE_BLOCKERS_DECK_SESSION_REQUEST, controller.signal);
+      const descriptor = await openDeckSession(request, controller.signal);
       if (controller.signal.aborted || currentToken !== token) return;
       let receivedFrame = false;
       publishDeckSessionDescriptor({ sessionId: descriptor.sessionId, streamUrl: descriptor.streamUrl });
@@ -101,12 +103,7 @@ export function createDeckLiveSession(callbacks: DeckLiveSessionCallbacks) {
           callbacks.onFrame(frame, descriptor);
         },
         () => {
-          if (controller.signal.aborted || currentToken !== token) return;
-          // An error after a successful frame means the live stream broke; tear it
-          // down, mark the deck degraded, and re-arm the retry so the deck does not
-          // sit "live" but frozen. Pre-frame errors keep the original transient-retry
-          // behavior.
-          receivedFrame = false;
+          if (controller.signal.aborted || currentToken !== token || receivedFrame) return;
           closeStream?.();
           closeStream = null;
           callbacks.onStreamUnavailable();
@@ -136,16 +133,22 @@ export function createDeckLiveSession(callbacks: DeckLiveSessionCallbacks) {
 
   return {
     start: () => {
-      stop();
-      const currentToken = ++token;
-      const controller = new AbortController();
-      abortController = controller;
-      void attemptOpen(currentToken, controller);
-
-      return stop;
+      return startWith(QUEUE_BLOCKERS_DECK_SESSION_REQUEST);
     },
+    startWith,
     stop,
   };
+
+  function startWith(nextRequest: OpenDeckSessionRequest) {
+    stop();
+    request = nextRequest;
+    const currentToken = ++token;
+    const controller = new AbortController();
+    abortController = controller;
+    void attemptOpen(currentToken, controller);
+
+    return stop;
+  }
 }
 
 export function publishDeckSessionDescriptor(descriptor: DeckSessionChannelDescriptor): void {

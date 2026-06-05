@@ -22,10 +22,23 @@ function DeckCardViewImpl({ pane, active, rankReason, setElement, onPromote }: D
       style={{ opacity: active ? 1 : undefined }}
     >
       <div className="deck-card-head">
-        <span className={`deck-risk deck-risk-${pane.risk}`}>{pane.risk}</span>
+        <span className={`deck-risk deck-risk-${pane.risk}`}>{pane.cardType ?? pane.kind}</span>
         <strong>{pane.title}</strong>
         <span className="deck-rank">#{pane.rank}</span>
       </div>
+      {pane.sourceBadges && pane.sourceBadges.length > 0 && (
+        <div className="deck-source-row" aria-label={`${pane.title} sources`}>
+          {pane.sourceBadges.map((badge) => (
+            <span
+              className={`deck-source-badge deck-source-${badge.status}`}
+              key={`${badge.source}:${badge.status}:${badge.reason ?? ""}`}
+              title={badge.reason ?? badge.status}
+            >
+              {badge.source}: {badge.status}
+            </span>
+          ))}
+        </div>
+      )}
       <h3>{pane.preview.headline}</h3>
       <div className="deck-chip-row">
         {pane.preview.chips.slice(0, 4).map((chip) => (

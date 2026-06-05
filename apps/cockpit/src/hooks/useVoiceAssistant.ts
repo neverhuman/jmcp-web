@@ -141,30 +141,36 @@ export function useVoiceAssistant(): VoiceAssistantApi {
     abortActiveWork();
     const turnAbort = new AbortController();
     turnAbortRef.current = turnAbort;
-    setBoth("thinking");
     speechQueueRef.current = [];
-    // Hand the turn to the deck the instant it starts: purple takeover + panes fly
-    // in, and each reasoning step / tool call reshuffles focus — so the deck visibly
-    // moves at the speed of the agent's reasoning, before it speaks.
     deckStore.beginAgentTurn(command);
-    try {
-      const lastText = await runVoiceTurn({
-        command,
-        history: historyRef.current,
-        signal: turnAbort.signal,
-        enqueueSpeech,
-        setThinking: () => setBoth("thinking"),
-        onAgentStep: (label) => deckStore.pulseAgentStep(label),
-      });
-      setReply(lastText);
-      if (lastText.length === 0) enqueueSpeech("Sorry, I did not catch that.", turnAbort.signal);
-    } catch (err) {
-      if (turnAbort.signal.aborted || isAbortError(err)) {
-        return;
+
+    setBoth(streamRef.current === null ? "off" : "listening");
+
+    void (async () => {
+      try {
+        const lastText = await runVoiceTurn({
+          command,
+          history: historyRef.current,
+          signal: turnAbort.signal,
+          enqueueSpeech,
+          setThinking: () => setBoth("listening"),
+          onAgentStep: (label) => deckStore.pulseAgentStep(label),
+        });
+        if (turnAbort.signal.aborted) {
+          return;
+        }
+        setReply(lastText);
+        if (lastText.length === 0) {
+          enqueueSpeech("Sorry, I did not catch that.", turnAbort.signal);
+        }
+      } catch (err) {
+        if (turnAbort.signal.aborted || isAbortError(err)) {
+          return;
+        }
+        setError(err instanceof Error ? err.message : "reasoning failed");
+        setBoth(streamRef.current === null ? "off" : "listening");
       }
-      setError(err instanceof Error ? err.message : "reasoning failed");
-      setBoth(streamRef.current === null ? "off" : "listening");
-    }
+    })();
   }, [abortActiveWork, enqueueSpeech, setBoth]);
 
   const handleUtterance = useCallback(async (blob: Blob) => {

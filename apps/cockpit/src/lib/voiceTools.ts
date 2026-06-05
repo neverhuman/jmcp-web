@@ -3,7 +3,7 @@
 // it may invoke. READ-ONLY actions (status / listings) run freely; STATE-CHANGING
 // actions (submit / start) require an explicit confirmed=true that the model only
 // sets after the operator agrees out loud. Every call goes through the same-origin
-// /jmcp proxy (-> 127.0.0.1:18877) so nothing leaves the machine. Responses are
+// /jmcp proxy (-> the detected local JMCP API) so nothing leaves the machine. Responses are
 // narrowed from `unknown` with explicit guards — never `as`-cast — and summarized
 // to a short spoken-friendly string the model can read back.
 

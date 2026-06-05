@@ -2,7 +2,6 @@ import { FileCheck2, GitBranch } from "lucide-react";
 import type {
   EvidenceBundle,
   MemoryProposal,
-  Risk,
   SystemNode,
   WorkItem,
 } from "./types";
@@ -11,16 +10,13 @@ import type { RuntimeState } from "./runtime";
 import { NowCommandDeck } from "./jitux/components/NowCommandDeck";
 import { deckStore, useDeckSnapshot } from "./jitux/store";
 import {
-  AttentionPacketCard,
   EmptyCard,
   EmptyRow,
   MemoryIncidentCard,
-  MetricCard,
   PanelHeader,
   SystemIncidentCard,
   WorkRow,
   classForHealth,
-  riskRank,
 } from "./views-extra";
 import { ControlPlanePanel, UniverseView } from "./views-panels";
 
@@ -30,61 +26,14 @@ export function NowView({ runtime }: { runtime: RuntimeState }) {
   const deckActive = useDeckSnapshot((state) => state.active);
   useEffect(() => {
     if (!deckActive) {
-      deckStore.startLiveQueueBlockers(runtime);
+      deckStore.startLiveQueueBlockers(runtime, "status report");
     }
     return () => {};
   }, [deckActive, runtime]);
-  const blocked = runtime.workItems.filter((item) => item.state === "blocked").length;
-  const decisionPackets = runtime.attentionPackets.filter((packet) => packet.decisionNeeded).length;
-  const urgentPackets = runtime.attentionPackets.filter(
-    (packet) => packet.attentionLevel === "urgent" || packet.attentionLevel === "incident",
-  ).length;
-  const voiceConfirmations = runtime.voiceThreads.filter((thread) => thread.requiresResponse).length;
-  const activePromotions = runtime.memoryLessons.filter((lesson) => lesson.state === "promoted").length;
-  const topRisk = runtime.attentionPackets.reduce((highest, packet) => (riskRank(packet.riskDelta.to) > riskRank(highest) ? packet.riskDelta.to : highest), "low" as Risk);
-  const controlPlanePanel = <ControlPlanePanel runtime={runtime} />;
-
-  if (deckActive) {
-    return (
-      <div className="now-stack">
-        {controlPlanePanel}
-        <NowCommandDeck />
-      </div>
-    );
-  }
 
   return (
-    <div className="dashboard-grid now-layout">
-      {controlPlanePanel}
-      <MetricCard label="Decision packets" value={runtime.attentionPackets.length.toString()} tone="green" detail={`${decisionPackets} packets need explicit decisions`} />
-      <MetricCard label="Urgent" value={urgentPackets.toString()} tone="amber" detail={`${voiceConfirmations} voice/text confirmations are waiting`} />
-      <MetricCard label="Blocked" value={blocked.toString()} tone="red" detail="adapter authority gap" />
-      <MetricCard label="Memory promotions" value={activePromotions.toString()} tone="ink" detail={runtime.usingFixtures ? "fixture data" : "live API"} />
-
-      <section className="attention-inbox wide">
-        <div className="attention-inbox-hero">
-          <div>
-            <p className="eyebrow">Attention inbox</p>
-            <h3>
-              {runtime.attentionPackets.length} decision packets, {decisionPackets} explicit choices, {urgentPackets} urgent items.
-            </h3>
-            <p>
-              Only decision-worthy packets surface here. Each card carries why-now, alternatives, risk delta, and drill-down links instead of a warning strip.
-            </p>
-          </div>
-          <div className="inbox-dial" aria-label={`Highest risk ${topRisk}`}>
-            <strong>{topRisk}</strong>
-            <span>highest risk</span>
-          </div>
-        </div>
-
-        <div className="attention-packet-grid">
-          {runtime.attentionPackets.length === 0 && <EmptyCard label="No attention packets" />}
-          {runtime.attentionPackets.map((packet) => (
-            <AttentionPacketCard key={packet.id} packet={packet} />
-          ))}
-        </div>
-      </section>
+    <div className="now-stack">
+      <NowCommandDeck />
     </div>
   );
 }

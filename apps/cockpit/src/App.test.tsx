@@ -142,21 +142,50 @@ function runtimePayloads(workKind = "live.mock") {
       ecosystem: { tools: [tool], live: true },
     },
     "/control-plane": controlPlane,
+    "/agents": [{ agentId: "agent-live", lastSeq: 3, backlogLen: 2 }],
+    "/agent-sessions": [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        sessionKey: "jeryu.live.session",
+        provider: "jeryu",
+        subject: "Jeryu repo worker",
+        status: "running",
+        processKey: "proc-jeryu",
+        streamUri: "/agent-sessions/11111111-1111-4111-8111-111111111111/stream",
+        startedAt: liveTimestamp,
+        updatedAt: liveTimestamp,
+      },
+    ],
+    "/process-observations": [
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        processKey: "proc-jeryu",
+        command: "jeryu run proof",
+        status: "running",
+        pty: "pty-enabled",
+        stuck: false,
+        diagnosticClass: null,
+        startedAt: liveTimestamp,
+        updatedAt: liveTimestamp,
+      },
+    ],
+    "/incidents": [],
   } satisfies PayloadMap;
 }
 
 function installFetchMock(payloads: PayloadMap, rejectedPaths = new Set<string>()) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = new URL(String(input), apiOrigin);
-    if (rejectedPaths.has(url.pathname)) {
-      return Promise.reject(new Error(`mock failure ${url.pathname}`));
+    const path = url.pathname.replace(/^\/jmcp(?=\/|$)/, "") || "/";
+    if (rejectedPaths.has(path)) {
+      return Promise.reject(new Error(`mock failure ${path}`));
     }
-    if (!(url.pathname in payloads)) {
-      return Promise.reject(new Error(`unmocked ${url.pathname}`));
+    if (!(path in payloads)) {
+      return Promise.reject(new Error(`unmocked ${path}`));
     }
     return Promise.resolve({
       ok: true,
-      json: async () => payloads[url.pathname],
+      json: async () => payloads[path],
     });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -212,7 +241,7 @@ describe("JMCP cockpit", () => {
 
     const runtime = await loadRuntime();
 
-    expect(fetchMock).toHaveBeenCalledTimes(15);
+    expect(fetchMock).toHaveBeenCalledTimes(19);
     expect(runtime.apiHealth).toBe("nominal");
     expect(runtime.usingFixtures).toBe(false);
     expect(runtime.loadedAt).toBe("12:34:56Z");
@@ -221,6 +250,10 @@ describe("JMCP cockpit", () => {
     expect(runtime.replayEvents[0].sequence).toBe(7);
     expect(runtime.approvalRequests[0].challengeId).toBe("challenge-live");
     expect(runtime.ecosystemLive).toBe(true);
+    expect(runtime.agents[0].agentId).toBe("agent-live");
+    expect(runtime.agentSessions[0].status).toBe("running");
+    expect(runtime.processObservations[0].processKey).toBe("proc-jeryu");
+    expect(runtime.sourceStatuses.filter((source) => source.state === "live")).toHaveLength(19);
   });
 
   it("keeps live slices while marking partial backend failure as fixture-backed", async () => {
@@ -233,6 +266,7 @@ describe("JMCP cockpit", () => {
     expect(runtime.usingFixtures).toBe(true);
     expect(runtime.workItems[0].title).toBe("live.mock");
     expect(runtime.ecosystemLive).toBe(false);
+    expect(runtime.sourceStatuses.find((source) => source.key === "ecosystem")?.state).toBe("degraded");
     expect(runtime.ecosystemDegradedReason).toContain("unavailable");
   });
 
@@ -260,7 +294,7 @@ describe("JMCP cockpit", () => {
 
     await user.click(await screen.findByRole("button", { name: "Work" }));
     expect(await screen.findByText("live.mock")).toBeInTheDocument();
-    expect(MockEventSource.instances[0].url).toBe(`${apiOrigin}/events`);
+    expect(MockEventSource.instances[0].url).toBe("/jmcp/events");
 
     Object.assign(payloads, runtimePayloads("live.refreshed"));
     MockEventSource.instances[0].emit("jmcp.events", [{ id: 2, event_type: "work.updated" }]);
@@ -280,13 +314,11 @@ describe("JMCP cockpit", () => {
   it("shows the Mission Deck on the first screen", async () => {
     render(<App />);
 
-    expect(await screen.findByLabelText("JMCP control plane")).toBeInTheDocument();
-    expect(screen.getByText("Control Plane")).toBeInTheDocument();
-    expect(screen.getByText(/pr export only/i)).toBeInTheDocument();
     expect(await screen.findByLabelText("AIUX Mission Deck")).toBeInTheDocument();
     const rankedDeck = screen.getByLabelText("Ranked Mission Deck");
     expect(rankedDeck).toBeInTheDocument();
-    expect(screen.getAllByText("Queue blocker").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Inner dialogue")).toBeInTheDocument();
+    expect(screen.queryByLabelText("JMCP control plane")).not.toBeInTheDocument();
   });
 
   it("opens the memory slice with promotion and quarantine drill-down", async () => {

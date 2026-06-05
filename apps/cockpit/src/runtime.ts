@@ -13,6 +13,8 @@ import {
 } from "./fixtures";
 import {
   isAdapters,
+  isAgentSessionArray,
+  isAgentSummaryArray,
   isApprovalArray,
   isApprovalChallengeArray,
   isAttentionPacketArray,
@@ -22,12 +24,16 @@ import {
   isEvidenceArray,
   isFleetBoard,
   isHealthResponse,
+  isIncidentArray,
   isMemoryProposalArray,
+  isProcessObservationArray,
   isReplay,
   isSystemArray,
   isUniverse,
   isVoiceThreadArray,
   isWorkOrderArray,
+  type ApiAgentSession,
+  type ApiAgentSummary,
   type ApiAdapters,
   type ApiApproval,
   type ApiApprovalChallenge,
@@ -36,7 +42,9 @@ import {
   type ApiEcosystem,
   type ApiEvidence,
   type ApiFleetBoard,
+  type ApiIncident,
   type ApiMemoryProposal,
+  type ApiProcessObservation,
   type ApiReplay,
   type ApiUniverse,
   type ApiVoiceThread,
@@ -74,19 +82,52 @@ import type {
   ToolAsset,
   VoiceTextThread,
   WorkItem,
+  AgentSummary,
+  AgentSessionSummary,
+  ProcessObservationSummary,
+  RuntimeIncident,
+  RuntimeSourceStatus,
 } from "./types";
 
 import { createDegradedEcosystem, createFixtureUniverse, createRuntimeUniverse, getJson } from "./runtime-helpers";
-const apiUrl = import.meta.env.VITE_JMCP_API_URL ?? "http://127.0.0.1:18877";
+
+type SettledSource = PromiseSettledResult<unknown>;
+
+const runtimeSourceCatalog: Array<{ key: string; label: string }> = [
+  { key: "health", label: "health" },
+  { key: "work-orders", label: "work orders" },
+  { key: "evidence", label: "evidence" },
+  { key: "systems", label: "systems" },
+  { key: "attention", label: "attention" },
+  { key: "voice-text", label: "voice/text" },
+  { key: "memory", label: "memory" },
+  { key: "replay", label: "replay" },
+  { key: "approvals", label: "approvals" },
+  { key: "approval-challenges", label: "approval challenges" },
+  { key: "adapters", label: "adapters" },
+  { key: "ecosystem", label: "Jeryu ecosystem" },
+  { key: "fleet-board", label: "fleet board" },
+  { key: "universe", label: "universe" },
+  { key: "control-plane", label: "control plane" },
+  { key: "agents", label: "agent bus" },
+  { key: "agent-sessions", label: "agent sessions" },
+  { key: "process-observations", label: "process observations" },
+  { key: "incidents", label: "incidents" },
+];
 
 export type RuntimeState = {
   apiHealth: Health;
+  sourceStatuses: RuntimeSourceStatus[];
   workItems: WorkItem[];
   evidenceBundles: EvidenceBundle[];
   systems: SystemNode[];
   toolAssets: ToolAsset[];
   universe: UniverseSnapshot;
   fleetBoard: FleetBoardSnapshot;
+  agents: AgentSummary[];
+  agentSessions: AgentSessionSummary[];
+  processObservations: ProcessObservationSummary[];
+  incidents: RuntimeIncident[];
   attentionPackets: AttentionPacket[];
   voiceThreads: VoiceTextThread[];
   memoryLessons: MemoryProposal[];
@@ -102,12 +143,17 @@ export type RuntimeState = {
 export function createFixtureRuntime(): RuntimeState {
   return {
     apiHealth: "degraded",
+    sourceStatuses: degradedSourceStatuses("fixture data"),
     workItems,
     evidenceBundles,
     systems,
     toolAssets,
     universe: createFixtureUniverse(),
     fleetBoard,
+    agents: [],
+    agentSessions: [],
+    processObservations: [],
+    incidents: [],
     attentionPackets,
     voiceThreads: voiceTextThreads,
     memoryLessons,
@@ -118,6 +164,22 @@ export function createFixtureRuntime(): RuntimeState {
     ecosystemDegradedReason: "fixture data",
     loadedAt: "fixture",
     usingFixtures: true,
+  };
+}
+
+function degradedSourceStatuses(reason: string): RuntimeSourceStatus[] {
+  return runtimeSourceCatalog.map((source) => ({ ...source, state: "degraded", reason }));
+}
+
+function sourceStatus(key: string, label: string, result: SettledSource): RuntimeSourceStatus {
+  if (result.status === "fulfilled") {
+    return { key, label, state: "live" };
+  }
+  return {
+    key,
+    label,
+    state: "degraded",
+    reason: result.reason instanceof Error ? result.reason.message : "source unavailable",
   };
 }
 
@@ -142,6 +204,10 @@ export async function loadRuntime(): Promise<RuntimeState> {
     apiFleetBoard,
     apiUniverse,
     apiControlPlane,
+    apiAgents,
+    apiAgentSessions,
+    apiProcessObservations,
+    apiIncidents,
   ] = await Promise.allSettled([
     getJson<{ ok: boolean }>("/health", isHealthResponse),
     getJson<ApiWorkOrder[]>("/work-orders", isWorkOrderArray),
@@ -158,6 +224,10 @@ export async function loadRuntime(): Promise<RuntimeState> {
     getJson<ApiFleetBoard>("/fleet-board", isFleetBoard),
     getJson<ApiUniverse>("/universe", isUniverse),
     getJson<ApiControlPlane>("/control-plane", isControlPlane),
+    getJson<ApiAgentSummary[]>("/agents", isAgentSummaryArray),
+    getJson<ApiAgentSession[]>("/agent-sessions", isAgentSessionArray),
+    getJson<ApiProcessObservation[]>("/process-observations", isProcessObservationArray),
+    getJson<ApiIncident[]>("/incidents", isIncidentArray),
   ]);
 
   const allFailed = [
@@ -176,6 +246,10 @@ export async function loadRuntime(): Promise<RuntimeState> {
     apiFleetBoard,
     apiUniverse,
     apiControlPlane,
+    apiAgents,
+    apiAgentSessions,
+    apiProcessObservations,
+    apiIncidents,
   ].every((result) => result.status === "rejected");
   if (allFailed) {
     return createFixtureRuntime();
@@ -219,6 +293,10 @@ export async function loadRuntime(): Promise<RuntimeState> {
     apiFleetBoard.status === "fulfilled"
       ? mapFleetBoard(apiFleetBoard.value)
       : fleetBoard;
+  const liveAgents = apiAgents.status === "fulfilled" ? apiAgents.value : [];
+  const liveAgentSessions = apiAgentSessions.status === "fulfilled" ? apiAgentSessions.value : [];
+  const liveProcessObservations = apiProcessObservations.status === "fulfilled" ? apiProcessObservations.value : [];
+  const liveIncidents = apiIncidents.status === "fulfilled" ? apiIncidents.value : [];
   const ecosystemLive = liveUniverse.ecosystem.live;
   const ecosystemDegradedReason = liveUniverse.ecosystem.degradedReason ?? "Jeryu ecosystem unavailable";
   const partialFailure = [
@@ -237,15 +315,45 @@ export async function loadRuntime(): Promise<RuntimeState> {
     apiFleetBoard,
     apiUniverse,
     apiControlPlane,
+    apiAgents,
+    apiAgentSessions,
+    apiProcessObservations,
+    apiIncidents,
   ].some((result) => result.status === "rejected");
+  const sourceStatuses = [
+    sourceStatus("health", "health", health),
+    sourceStatus("work-orders", "work orders", apiWork),
+    sourceStatus("evidence", "evidence", apiEvidence),
+    sourceStatus("systems", "systems", apiSystems),
+    sourceStatus("attention", "attention", apiAttention),
+    sourceStatus("voice-text", "voice/text", apiVoiceText),
+    sourceStatus("memory", "memory", apiMemory),
+    sourceStatus("replay", "replay", apiReplay),
+    sourceStatus("approvals", "approvals", apiApprovals),
+    sourceStatus("approval-challenges", "approval challenges", apiApprovalChallenges),
+    sourceStatus("adapters", "adapters", apiAdapters),
+    sourceStatus("ecosystem", "Jeryu ecosystem", apiEcosystem),
+    sourceStatus("fleet-board", "fleet board", apiFleetBoard),
+    sourceStatus("universe", "universe", apiUniverse),
+    sourceStatus("control-plane", "control plane", apiControlPlane),
+    sourceStatus("agents", "agent bus", apiAgents),
+    sourceStatus("agent-sessions", "agent sessions", apiAgentSessions),
+    sourceStatus("process-observations", "process observations", apiProcessObservations),
+    sourceStatus("incidents", "incidents", apiIncidents),
+  ];
 
   return {
     apiHealth: partialFailure || health.status !== "fulfilled" || !health.value.ok ? "watch" : "nominal",
+    sourceStatuses,
     workItems: liveWork,
     evidenceBundles: liveEvidence,
     systems: liveSystems,
     toolAssets: liveTools,
     universe: liveUniverse,
+    agents: liveAgents,
+    agentSessions: liveAgentSessions,
+    processObservations: liveProcessObservations,
+    incidents: liveIncidents,
     attentionPackets: liveAttention,
     voiceThreads: liveVoiceText,
     memoryLessons: liveMemory,

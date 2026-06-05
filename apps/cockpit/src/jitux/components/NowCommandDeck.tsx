@@ -1,27 +1,25 @@
 import { ChevronsDownUp, ChevronsUpDown, Crosshair, ListFilter } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { deckStore, useDeckSnapshot } from "../store";
-import { getCardsForPane } from "../deck-queries";
 import { AnswerCaptionStream } from "./AnswerCaptionStream";
 import { DataLoom } from "./DataLoom";
 import { DeckViewport } from "./DeckViewport";
-import { FocusPane } from "./FocusPane";
 import { TraceRibbon } from "./TraceRibbon";
 
 export function NowCommandDeck() {
   const state = useDeckSnapshot();
   const [viewMode, setViewMode] = useState<"stack" | "fan">("stack");
-  const focusPane = state.focusPaneId ? state.panes[state.focusPaneId] : null;
-  const focusCards = useMemo(() => (state.focusPaneId ? getCardsForPane(state, state.focusPaneId) : []), [state]);
-  const focusEvidence = state.focusPaneId ? state.evidenceByPane[state.focusPaneId] ?? [] : [];
-  const focusActions = state.focusPaneId ? state.actionsByPane[state.focusPaneId] ?? [] : [];
-  const focusReason = state.focusPaneId ? state.rankReasons[state.focusPaneId] : undefined;
 
   useEffect(() => {
     if (!state.active) {
       return () => {};
     }
-    return deckStore.startLiveQueueBlockers();
+    const stopLive = deckStore.startLiveQueueBlockers();
+    const stopIdle = deckStore.startIdleMacroScan();
+    return () => {
+      stopIdle();
+      stopLive();
+    };
   }, [state.active]);
 
   return (
@@ -49,11 +47,22 @@ export function NowCommandDeck() {
           </div>
         </header>
         <TraceRibbon trace={state.trace} />
-        <div className="command-deck-grid">
-          <DeckViewport state={state} />
-          <FocusPane pane={focusPane} cards={focusCards} evidence={focusEvidence} actions={focusActions} reason={focusReason} />
-        </div>
+        <DeckViewport state={state} />
+        <InnerDialogue lines={state.dialogue} fallback={state.error ?? state.caption} />
         <AnswerCaptionStream caption={state.error ?? state.caption} />
+      </div>
+    </section>
+  );
+}
+
+function InnerDialogue({ lines, fallback }: { lines: string[]; fallback: string }) {
+  const visible = lines.length > 0 ? lines : [fallback].filter((line) => line.trim().length > 0);
+  return (
+    <section className="inner-dialogue-stream" aria-label="Inner dialogue" aria-live="polite">
+      <div>
+        {visible.map((line, index) => (
+          <span key={`${line}:${index}`}>{line}</span>
+        ))}
       </div>
     </section>
   );
