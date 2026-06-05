@@ -208,7 +208,14 @@ export function MemoryView({ memoryLessons }: { memoryLessons: MemoryProposal[] 
                 <dd>{lesson.source}</dd>
               </div>
             </dl>
-            <div className="meter" aria-label={`${lesson.confidence}% confidence`}>
+            <div
+              className="meter"
+              role="progressbar"
+              aria-label={`${lesson.confidence}% confidence`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={lesson.confidence}
+            >
               <span style={{ width: `${lesson.confidence}%` }} />
             </div>
             <section className="memory-promotion">

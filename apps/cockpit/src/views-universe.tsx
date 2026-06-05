@@ -95,7 +95,14 @@ export function UniverseView({ runtime }: { runtime: RuntimeState }) {
                 <dd>{repo.branch}</dd>
               </div>
             </dl>
-            <div className="meter" aria-label={`${repo.coverage}% coverage`}>
+            <div
+              className="meter"
+              role="progressbar"
+              aria-label={`${repo.coverage}% coverage`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={repo.coverage}
+            >
               <span style={{ width: `${repo.coverage}%` }} />
             </div>
             {repo.board && (
