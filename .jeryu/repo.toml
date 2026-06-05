@@ -1,0 +1,7 @@
+schema_version = 1
+repo = "jmcp-web"
+profile = "node-frontend"
+default_branch = "main"
+ci_command = "npm run ci"
+release_lane = "npm run build"
+

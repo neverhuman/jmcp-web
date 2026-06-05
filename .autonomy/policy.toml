@@ -1,0 +1,6 @@
+schema_version = 1
+repo = "jmcp-web"
+mode = "pr_only"
+mutating_effects_require_approval = true
+durable_authority = "jmcp-core"
+

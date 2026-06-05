@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "workspace": "jmcp-web",
+  "tests": {
+    ".github/workflows/": {
+      "command": "npm run guard:no-three",
+      "purpose": "verify workflow changes keep frontend dependency guard available"
+    },
+    ".jeryu/": {
+      "command": "npm run typecheck",
+      "purpose": "verify Jeryu metadata changes leave the frontend build graph intact"
+    },
+    ".autonomy/": {
+      "command": "npm run typecheck",
+      "purpose": "verify autonomy metadata remains frontend-only"
+    },
+    "apps/cockpit/": {
+      "command": "npm --workspace @jmcp/cockpit run test",
+      "purpose": "verify cockpit runtime and JITUX rendering behavior"
+    },
+    "apps/cockpit/src/gen/": {
+      "command": "npm run guard:generated-client",
+      "purpose": "verify generated core contract client stays present and typed"
+    },
+    "apps/web/": {
+      "command": "npm --prefix apps/web run test:ux",
+      "purpose": "verify rendered proof host states"
+    },
+    "package.json": {
+      "command": "npm run ci",
+      "purpose": "verify root frontend workspace commands"
+    }
+  }
+}
+

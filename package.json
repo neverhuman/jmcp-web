@@ -17,6 +17,8 @@
     "typecheck": "npm --workspace @jmcp/cockpit run typecheck",
     "lint": "npm --workspace @jmcp/cockpit run lint",
     "test": "npm --workspace @jmcp/cockpit run test",
+    "guard:no-three": "node scripts/no-three-guard.mjs",
+    "guard:generated-client": "node scripts/generated-client-guard.mjs",
     "ux-qa:build": "npm --workspace @jankurai/ux-qa run build",
     "ux-qa:test": "npm --workspace @jankurai/ux-qa run test"
   }
