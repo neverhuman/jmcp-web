@@ -1,0 +1,18 @@
+[stack]
+id = "rust-ts-vite-react-postgres-bounded-python"
+version = "0.4.0"
+
+[typescript]
+web_paths = ["apps/cockpit", "apps/web", "packages/ux-qa"]
+generated_contract_paths = ["apps/cockpit/src/gen"]
+forbidden_web_imports = ["sqlx", "pg", "postgres", "mysql", "better-sqlite3", "@aws-sdk/client-s3"]
+
+[authority]
+durable_approvals = "jmcp-core"
+tool_policy = "jmcp-core"
+ledgers = "jmcp-core"
+turn_state = "jmcp-core"
+
+[browser_audio]
+runtime_paths = ["apps/cockpit/src/lib/browserVad.ts", "apps/cockpit/src/lib/pcmStreamingPlayer.ts"]
+public_assets = ["apps/cockpit/public/models/vad/silero_vad.onnx"]

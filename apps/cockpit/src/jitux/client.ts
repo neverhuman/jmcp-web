@@ -1,7 +1,7 @@
 import { isJituxFrame } from "./guards";
 import type { JituxFrame } from "./types";
 
-const apiUrl = import.meta.env.VITE_JMCP_API_URL ?? "http://127.0.0.1:18877";
+const apiUrl = import.meta.env.VITE_JMCP_API_URL ?? import.meta.env.VITE_JMCP_BASE ?? "/jmcp";
 const apiBase = apiUrl.replace(/\/+$/, "");
 
 export type OpenDeckSessionRequest = {

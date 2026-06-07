@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
@@ -138,7 +138,26 @@ describe("NowCommandDeck", () => {
     render(<App />);
 
     const nowButton = screen.getByRole("button", { name: "Now" });
-    expect(await screen.findByLabelText("AIUX Mission Deck")).toBeInTheDocument();
-    expect(nowButton).toHaveClass("now", "agent-active", "takeover-complete");
+    expect(await screen.findByLabelText("Mission Deck viewport")).toBeInTheDocument();
+    expect(screen.queryByLabelText("AIUX Mission Deck")).not.toBeInTheDocument();
+    await waitFor(() => expect(nowButton).toHaveClass("now", "agent-active", "takeover-complete"));
+  });
+
+  it("renders the Now page as cards only with page chrome removed", async () => {
+    const { container } = render(<App />);
+
+    expect(await screen.findByLabelText("Mission Deck viewport")).toBeInTheDocument();
+    expect(screen.getByLabelText("Now")).toHaveClass("view-panel-now");
+    expect(container.querySelector(".topbar")).toBeNull();
+    expect(container.querySelector(".protocol-card")).toBeNull();
+    expect(container.querySelector(".view-heading")).toBeNull();
+    expect(container.querySelector(".metric")).toBeNull();
+    expect(container.querySelector(".attention-inbox")).toBeNull();
+    expect(screen.queryByText("Joint Master Control Plane")).not.toBeInTheDocument();
+    expect(screen.queryByText("Current slice")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Mission trace")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Focus pane")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Answer caption")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Fan panes" })).not.toBeInTheDocument();
   });
 });

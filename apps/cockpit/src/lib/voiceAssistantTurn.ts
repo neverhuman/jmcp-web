@@ -1,10 +1,9 @@
 import {
-  VOICE_MODEL,
-  reasonStream,
-  type ChatMessage,
-  type ToolCallFunction,
-} from "./speechClient";
-import { FIRST_CHUNK_CHARS, MAX_TOOL_HOPS } from "./voiceAssistantConfig";
+  runMiniCpmChat,
+  type MiniCpmContent,
+  type MiniCpmMessage,
+} from "./minicpmVoiceClient";
+import type { PcmAudioChunk } from "./pcmStreamingPlayer";
 import {
   JITUX_FIRST_FRAME_TIMEOUT_MS,
   openVoiceJituxSession,
@@ -12,13 +11,16 @@ import {
   type VoiceJituxDeckReadiness,
   type VoiceJituxSessionStart,
 } from "./voiceJituxSession";
-import { VOICE_TOOL_SPECS, executeVoiceTool } from "./voiceTools";
+import { executeVoiceTool } from "./voiceTools";
 
 interface VoiceTurnOptions {
+  turnId: string;
   command: string;
-  history: ChatMessage[];
+  history: MiniCpmMessage[];
   signal: AbortSignal;
-  enqueueSpeech: (text: string, signal?: AbortSignal) => void;
+  inputContent?: MiniCpmContent[];
+  enqueueAudio: (audio: PcmAudioChunk, signal?: AbortSignal) => void;
+  onDelta?: (delta: string) => void;
   setThinking: () => void;
   openDeckSession?: (prompt: string, signal: AbortSignal) => Promise<VoiceJituxSessionStart>;
   waitForDeckFrame?: (
@@ -73,128 +75,89 @@ export function detectFastReadOnlyTool(command: string): FastReadOnlyDecision {
 }
 
 export async function runVoiceTurn({
+  turnId,
   command,
   history,
   signal,
-  enqueueSpeech,
+  inputContent,
+  enqueueAudio,
+  onDelta = () => undefined,
   setThinking,
   openDeckSession = openVoiceJituxSession,
   waitForDeckFrame = waitForUsefulVoiceDeckFrame,
   deckFrameTimeoutMs = JITUX_FIRST_FRAME_TIMEOUT_MS,
 }: VoiceTurnOptions): Promise<string> {
-  history.push({ role: "user", content: command });
-  const deckSession = openDeckSession(command, signal);
-  const deckReadiness = waitForDeckFrame(deckSession, signal, deckFrameTimeoutMs).catch(
+  const userContent = buildUserContent(command, inputContent);
+  const deckPrompt = command.trim().length > 0 ? command : "voice turn";
+  const deckSession = openDeckSession(deckPrompt, signal);
+  void waitForDeckFrame(deckSession, signal, deckFrameTimeoutMs).catch(
     (error: unknown): VoiceJituxDeckReadiness => ({
       kind: "unavailable",
       reason: error instanceof Error ? error.message : "jitux_wait_error",
     }),
   );
-  const enqueueDeckAwareSpeech = createDeckAwareSpeechQueue(
-    enqueueSpeech,
-    deckReadiness,
-    signal,
-  );
+
   const fastDecision = detectFastReadOnlyTool(command);
+  let coreContext = "";
   if (fastDecision.kind === "local_tool") {
-    const output = await executeVoiceTool(fastDecision.tool, "{}", signal);
-    enqueueDeckAwareSpeech(output);
-    history.push({ role: "assistant", content: output });
-    trimHistory(history);
-    return output;
-  }
-
-  let pending = "";
-  let firstChunk = true;
-  const flushChunks = (force: boolean) => {
-    const chunks = pending.match(/[^,.!?:;]*[,.!?:;]+\s*/g);
-    if (chunks !== null) {
-      let consumed = 0;
-      for (const chunk of chunks) {
-        enqueueDeckAwareSpeech(chunk);
-        consumed += chunk.length;
-      }
-      pending = pending.slice(consumed);
-      firstChunk = false;
-    }
-    if (force) {
-      const lastSpace = pending.lastIndexOf(" ");
-      if (lastSpace > 12) {
-        enqueueDeckAwareSpeech(pending.slice(0, lastSpace));
-        pending = pending.slice(lastSpace + 1);
-        firstChunk = false;
-      }
-    }
-  };
-  const onDelta = (delta: string) => {
-    pending += delta;
-    if (/[,.!?:;]/.test(pending)) {
-      flushChunks(false);
-    } else if (pending.length > (firstChunk ? FIRST_CHUNK_CHARS : 120)) {
-      flushChunks(true);
-    }
-  };
-
-  let lastText = "";
-  for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
-    pending = "";
-    firstChunk = true;
-    const result = await reasonStream(history, onDelta, signal, VOICE_MODEL, VOICE_TOOL_SPECS);
-    enqueueDeckAwareSpeech(pending);
-    pending = "";
-    lastText = result.text;
-    if (result.toolCalls.length === 0) {
-      history.push({ role: "assistant", content: result.text });
-      break;
-    }
-    const toolCalls: ToolCallFunction[] = result.toolCalls.map((call) => ({
-      id: call.id,
-      type: "function",
-      function: { name: call.name, arguments: call.arguments },
-    }));
-    history.push({ role: "assistant", content: result.text, tool_calls: toolCalls });
+    coreContext = await executeVoiceTool(fastDecision.tool, "{}", signal);
     setThinking();
-    for (const call of result.toolCalls) {
-      const output = await executeVoiceTool(call.name, call.arguments, signal);
-      history.push({ role: "tool", tool_call_id: call.id, content: output });
-    }
   }
+
+  const messages = [...history, { role: "user" as const, content: withCoreContext(userContent, coreContext) }];
+  const result = await runMiniCpmChat({
+    turnId,
+    messages,
+    signal,
+    onDelta,
+    onAudio: enqueueAudio,
+  });
+  history.push({ role: "user", content: historySafeUserContent(command, inputContent) });
+  history.push({ role: "assistant", content: result.text });
   trimHistory(history);
-  return lastText;
+  return result.text;
 }
 
-function trimHistory(history: ChatMessage[]): void {
+function buildUserContent(command: string, inputContent?: MiniCpmContent[]): string | MiniCpmContent[] {
+  if (inputContent !== undefined && inputContent.length > 0) {
+    const content = [...inputContent];
+    if (!content.some((item) => item.type === "text")) {
+      content.push({
+        type: "text",
+        text: "Answer the operator's spoken request. Keep the reply concise.",
+      });
+    }
+    return content;
+  }
+  return command;
+}
+
+function withCoreContext(
+  content: string | MiniCpmContent[],
+  coreContext: string,
+): string | MiniCpmContent[] {
+  if (coreContext.trim().length === 0) {
+    return content;
+  }
+  const context =
+    `The operator asked: ${typeof content === "string" ? content : "a spoken request"}\n` +
+    `Current JMCP core context: ${coreContext}\n` +
+    "Answer the operator in one or two short spoken sentences.";
+  if (typeof content === "string") {
+    return context;
+  }
+  return [...content, { type: "text", text: context }];
+}
+
+function historySafeUserContent(command: string, inputContent?: MiniCpmContent[]): string {
+  if (command.trim().length > 0) {
+    return command;
+  }
+  return inputContent !== undefined ? "[voice audio turn]" : "";
+}
+
+function trimHistory(history: MiniCpmMessage[]): void {
   if (history.length <= 13) return;
   const trimmed = [history[0], ...history.slice(history.length - 12)];
   history.splice(0, history.length, ...trimmed);
-}
-
-function createDeckAwareSpeechQueue(
-  enqueueSpeech: (text: string, signal?: AbortSignal) => void,
-  deckReadiness: Promise<VoiceJituxDeckReadiness>,
-  signal: AbortSignal,
-): (text: string) => void {
-  let ready = false;
-  const pending: string[] = [];
-  const release = () => {
-    if (ready) {
-      return;
-    }
-    ready = true;
-    for (const text of pending) {
-      enqueueSpeech(text, signal);
-    }
-    pending.splice(0, pending.length);
-  };
-  void deckReadiness.then(release, release);
-  return (text: string) => {
-    if (text.trim().length === 0) {
-      return;
-    }
-    if (ready) {
-      enqueueSpeech(text, signal);
-      return;
-    }
-    pending.push(text);
-  };
 }

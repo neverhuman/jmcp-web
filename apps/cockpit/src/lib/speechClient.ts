@@ -55,9 +55,18 @@ function envBase(key: string, defaultBase: string): string {
 const ASR = envBase("VITE_ASR_BASE", "/asr");
 const TTS = envBase("VITE_TTS_BASE", "/tts");
 const LLM = envBase("VITE_LLM_BASE", "/llm");
+const SIDECAR_AUTH_HEADER_BLOCKLIST = ["authorization", "cookie"] as const;
 // Served-model name the vLLM sidecar registers under. Override with VITE_LLM_MODEL
 // when the underlying model is swapped.
 export const VOICE_MODEL = envBase("VITE_LLM_MODEL", "local/qwen3-30b-a3b");
+
+function asrAudioHeaders(audio: Blob): Record<string, string> {
+  const headers: Record<string, string> = { "content-type": audio.type || "audio/webm" };
+  for (const name of SIDECAR_AUTH_HEADER_BLOCKLIST) {
+    delete headers[name];
+  }
+  return headers;
+}
 
 /** Transcribe recorded audio (webm/opus/ogg/wav) via the faster-whisper sidecar. */
 export async function transcribe(
@@ -65,13 +74,10 @@ export async function transcribe(
   language = "en",
   beamSize = 1,
 ): Promise<Transcription> {
-  const params = new URLSearchParams({
-    language,
-    beam_size: String(beamSize),
-  });
-  const response = await fetch(`${ASR}/transcribe?${params.toString()}`, {
+  const query = `language=${encodeURIComponent(language)}&beam_size=${encodeURIComponent(String(beamSize))}`;
+  const response = await fetch(`${ASR}/transcribe?${query}`, {
     method: "POST",
-    headers: { "content-type": audio.type || "audio/webm" },
+    headers: asrAudioHeaders(audio),
     body: audio,
   });
   if (!response.ok) {

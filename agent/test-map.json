@@ -2,9 +2,61 @@
   "version": 1,
   "workspace": "jmcp-web",
   "tests": {
+    ".editorconfig": {
+      "command": "just fast",
+      "purpose": "verify repository editor policy stays parseable"
+    },
+    ".env.example": {
+      "command": "just fast",
+      "purpose": "verify sample environment config remains routed"
+    },
+    ".gitignore": {
+      "command": "just fast",
+      "purpose": "verify repository ignore policy"
+    },
+    ".npmrc": {
+      "command": "just fast",
+      "purpose": "verify npm configuration remains routed"
+    },
+    "AGENTS.md": {
+      "command": "just score",
+      "purpose": "verify root agent routing remains visible"
+    },
+    "CHANGELOG.md": {
+      "command": "just release-readiness",
+      "purpose": "verify changelog remains part of release evidence"
+    },
+    "ci-fast-push.sh": {
+      "command": "just fast",
+      "purpose": "verify local fast-push helper remains shell-parseable"
+    },
+    "CLAUDE.md": {
+      "command": "just score",
+      "purpose": "verify Claude-facing instructions remain routed"
+    },
+    "GEMINI.md": {
+      "command": "just score",
+      "purpose": "verify Gemini-facing instructions remain routed"
+    },
+    "Justfile": {
+      "command": "just fast",
+      "purpose": "verify local proof targets remain routed"
+    },
+    "README-jankurai-scaffold.md": {
+      "command": "just score",
+      "purpose": "verify Jankurai scaffold remains routed"
+    },
+    "README.md": {
+      "command": "just score",
+      "purpose": "verify README guidance remains routed"
+    },
+    "agent/": {
+      "command": "just score",
+      "purpose": "verify agent-readable manifests remain parseable"
+    },
     ".github/workflows/": {
-      "command": "npm run guard:no-three",
-      "purpose": "verify workflow changes keep frontend dependency guard available"
+      "command": "just security",
+      "purpose": "verify workflow changes stay inside security and local parity lanes"
     },
     ".jeryu/": {
       "command": "npm run typecheck",
@@ -19,17 +71,44 @@
       "purpose": "verify cockpit runtime and JITUX rendering behavior"
     },
     "apps/cockpit/src/gen/": {
-      "command": "npm run guard:generated-client",
+      "command": "just contract-drift",
       "purpose": "verify generated core contract client stays present and typed"
+    },
+    "apps/shared/": {
+      "command": "just fast",
+      "purpose": "verify shared React bootstrap code remains routed"
     },
     "apps/web/": {
       "command": "npm --prefix apps/web run test:ux",
       "purpose": "verify rendered proof host states"
     },
+    "docs/": {
+      "command": "just release-readiness",
+      "purpose": "verify documentation remains aligned with release proof"
+    },
+    "gitleaks.toml": {
+      "command": "just security",
+      "purpose": "verify secret-scanning policy remains routed"
+    },
+    "ops/": {
+      "command": "just fast",
+      "purpose": "verify local CI helpers remain shell-parseable"
+    },
     "package.json": {
       "command": "npm run ci",
       "purpose": "verify root frontend workspace commands"
+    },
+    "package-lock.json": {
+      "command": "just fast",
+      "purpose": "verify npm lockfile remains routed"
+    },
+    "packages/ux-qa/": {
+      "command": "just ux-qa",
+      "purpose": "verify UX QA package and receipts"
+    },
+    "scripts/": {
+      "command": "just fast",
+      "purpose": "verify local CI entry points remain shell-parseable"
     }
   }
 }
-

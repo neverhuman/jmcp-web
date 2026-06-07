@@ -1,11 +1,7 @@
-// Browser-side registry of JMCP "tools" the local voice agent can call. The local
-// 30B (vLLM, :18902) is served with tool-calling enabled; these are the functions
-// it may invoke. READ-ONLY actions (status / listings) run freely; STATE-CHANGING
-// actions (submit / start) require an explicit confirmed=true that the model only
-// sets after the operator agrees out loud. Every call goes through the same-origin
-// /jmcp proxy (-> 127.0.0.1:18877) so nothing leaves the machine. Responses are
-// narrowed from `unknown` with explicit guards — never `as`-cast — and summarized
-// to a short spoken-friendly string the model can read back.
+// Browser-side JMCP tool helpers for the local voice agent. The live voice path
+// runs fast read-only lookups before the model turn and injects their summaries
+// into the same-origin /jmcp voice session. State-changing helpers remain gated
+// for compatibility lanes and require an explicit confirmed=true.
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

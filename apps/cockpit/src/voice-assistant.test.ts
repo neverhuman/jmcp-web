@@ -20,6 +20,16 @@ import {
   type VoiceJituxDeckReadiness,
   type VoiceJituxSessionStart,
 } from "./lib/voiceJituxSession";
+import {
+  BROWSER_VAD_MODEL_URL,
+  BrowserVadController,
+  MemoryVadLearningStore,
+  type VadDecision,
+} from "./lib/browserVad";
+import {
+  PcmPlaybackScheduler,
+  type PcmAudioChunk,
+} from "./lib/pcmStreamingPlayer";
 
 // A minimal stand-in for the Fetch API Response surface that speechClient reads:
 // `.ok`, `.json()`, and `.blob()`. Each test builds one of these via the helpers
@@ -78,6 +88,80 @@ function installFetch(impl: FetchSignature): ReturnType<typeof vi.fn<FetchSignat
   const fetchDouble = vi.fn<FetchSignature>(impl);
   vi.stubGlobal("fetch", fetchDouble);
   return fetchDouble;
+}
+
+type VoiceSocketFrame = Record<string, unknown>;
+
+function pcmBase64(): string {
+  const pcm = new Float32Array([0, 0.1, -0.1, 0.05]);
+  const bytes = new Uint8Array(pcm.buffer);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function pcmChunk(sequence: number, durationMs = 80): PcmAudioChunk {
+  return {
+    pcm: new Float32Array([0, 0.1, -0.1]),
+    sampleRate: 48_000,
+    sequence,
+    durationMs,
+    audioFormat: "f32le",
+  };
+}
+
+function speechFrame(amplitude: number): Float32Array {
+  const samples = new Float32Array(1024);
+  const cycles = 41;
+  for (let i = 0; i < samples.length; i += 1) {
+    samples[i] = amplitude * Math.sin((2 * Math.PI * cycles * i) / samples.length);
+  }
+  return samples;
+}
+
+function vadDecisionTypes(decisions: VadDecision[]): string[] {
+  return decisions.map((decision) => decision.type);
+}
+
+function installVoiceWebSocket(frames: VoiceSocketFrame[]) {
+  class VoiceWebSocketDouble {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    static readonly CLOSING = 2;
+    static readonly CLOSED = 3;
+    static instances: VoiceWebSocketDouble[] = [];
+    readonly sent: string[] = [];
+    readyState = VoiceWebSocketDouble.CONNECTING;
+    onopen: ((event: Event) => void) | null = null;
+    onmessage: ((event: MessageEvent<string>) => void) | null = null;
+    onerror: ((event: Event) => void) | null = null;
+    onclose: ((event: CloseEvent) => void) | null = null;
+
+    constructor(readonly url: string) {
+      VoiceWebSocketDouble.instances.push(this);
+      queueMicrotask(() => {
+        this.readyState = VoiceWebSocketDouble.OPEN;
+        this.onopen?.(new Event("open"));
+      });
+    }
+
+    send(data: string) {
+      this.sent.push(data);
+      for (const frame of frames) {
+        queueMicrotask(() => {
+          this.onmessage?.(
+            new MessageEvent("message", { data: JSON.stringify(frame) }),
+          );
+        });
+      }
+    }
+
+    close() {
+      this.readyState = VoiceWebSocketDouble.CLOSED;
+    }
+  }
+  vi.stubGlobal("WebSocket", VoiceWebSocketDouble);
+  return VoiceWebSocketDouble;
 }
 
 function immediateDeck() {
@@ -175,6 +259,16 @@ describe("transcribe", () => {
     expect(firstCall[0]).toContain("beam_size=1");
   });
 
+  it("does not forward authorization or cookie headers to the ASR sidecar", async () => {
+    const fetchDouble = installFetch(() => Promise.resolve(jsonResponse({ text: "ready" })));
+    await transcribe(new Blob(["audio"], { type: "audio/webm" }));
+    const [, init] = fetchDouble.mock.calls[0];
+    const headers = init?.headers as Record<string, string>;
+    expect(headers.authorization).toBeUndefined();
+    expect(headers.cookie).toBeUndefined();
+    expect(headers["content-type"]).toBe("audio/webm");
+  });
+
   it("lets accuracy runs override the ASR beam size", async () => {
     const fetchDouble = installFetch(() => Promise.resolve(jsonResponse({ text: "ready" })));
     await transcribe(new Blob(), "en", 4);
@@ -248,6 +342,199 @@ describe("voice JITUX sessions", () => {
     );
 
     expect(result).toEqual({ kind: "frame", sessionId: "jitux_1", frameType: "deck.patch" });
+  });
+});
+
+describe("browser VAD echo rejection", () => {
+  it("uses a bundled local Silero-style model path", () => {
+    expect(BROWSER_VAD_MODEL_URL).toBe("/models/vad/silero_vad.onnx");
+  });
+
+  it("rejects playback-correlated mic activity without starting a user turn", async () => {
+    const store = new MemoryVadLearningStore();
+    const events: Array<{ event: string; stage: string }> = [];
+    const vad = new BrowserVadController({
+      minSpeechMs: 175,
+      silenceMs: 96,
+      deviceHash: "device-a",
+      store,
+      recordEvent: (event) => events.push(event),
+    });
+    const decisions: VadDecision[] = [];
+
+    for (let nowMs = 1_000; nowMs <= 1_480; nowMs += 80) {
+      decisions.push(
+        vad.acceptFrame({
+          samples: speechFrame(0.08),
+          nowMs,
+          voiceState: "speaking",
+          playbackActive: true,
+          playbackStartedAtMs: 980,
+          playbackEnergy: 0.3,
+        }),
+      );
+    }
+
+    await Promise.resolve();
+
+    expect(vadDecisionTypes(decisions)).not.toContain("speech_start");
+    expect(events.some((event) => event.event === "voice.echo_rejected" && event.stage === "browser")).toBe(true);
+    expect(store.records.some((record) => record.outcome === "echo_rejected")).toBe(true);
+  });
+
+  it("accepts sustained non-echo speech during assistant playback as barge-in", async () => {
+    const store = new MemoryVadLearningStore();
+    const vad = new BrowserVadController({
+      minSpeechMs: 175,
+      silenceMs: 96,
+      deviceHash: "device-b",
+      store,
+    });
+    let accepted: VadDecision | null = null;
+
+    for (let nowMs = 1_000; nowMs <= 1_440; nowMs += 80) {
+      const decision = vad.acceptFrame({
+        samples: speechFrame(0.12),
+        nowMs,
+        voiceState: "speaking",
+        playbackActive: true,
+        playbackStartedAtMs: 200,
+        playbackEnergy: 0.08,
+      });
+      if (decision.type === "speech_start") {
+        accepted = decision;
+      }
+    }
+
+    await Promise.resolve();
+
+    expect(accepted).toEqual({ type: "speech_start", bargeIn: true });
+    expect(store.records.some((record) => record.outcome === "accepted")).toBe(true);
+  });
+
+  it("starts normal listening speech with less strict gates", () => {
+    const vad = new BrowserVadController({
+      minSpeechMs: 175,
+      silenceMs: 96,
+      deviceHash: "device-c",
+      store: new MemoryVadLearningStore(),
+    });
+    const decisions: VadDecision[] = [];
+
+    for (let nowMs = 1_000; nowMs <= 1_120; nowMs += 40) {
+      decisions.push(
+        vad.acceptFrame({
+          samples: speechFrame(0.04),
+          nowMs,
+          voiceState: "listening",
+          playbackActive: false,
+          playbackStartedAtMs: 0,
+          playbackEnergy: 0,
+        }),
+      );
+    }
+
+    expect(decisions).toContainEqual({ type: "speech_start", bargeIn: false });
+  });
+
+  it("does not start capture while the assistant is thinking", () => {
+    const vad = new BrowserVadController({
+      minSpeechMs: 175,
+      silenceMs: 96,
+      deviceHash: "device-thinking",
+      store: new MemoryVadLearningStore(),
+    });
+    const decisions: VadDecision[] = [];
+
+    for (let nowMs = 1_000; nowMs <= 1_520; nowMs += 40) {
+      decisions.push(
+        vad.acceptFrame({
+          samples: speechFrame(0.12),
+          nowMs,
+          voiceState: "thinking",
+          playbackActive: false,
+          playbackStartedAtMs: 0,
+          playbackEnergy: 0,
+        }),
+      );
+    }
+
+    expect(vadDecisionTypes(decisions)).not.toContain("speech_start");
+  });
+
+  it("stores learning records without raw audio or transcript text", async () => {
+    const store = new MemoryVadLearningStore();
+    const vad = new BrowserVadController({
+      minSpeechMs: 175,
+      silenceMs: 96,
+      deviceHash: "device-d",
+      store,
+    });
+
+    for (let nowMs = 1_000; nowMs <= 1_120; nowMs += 40) {
+      vad.acceptFrame({
+        samples: speechFrame(0.04),
+        nowMs,
+        voiceState: "listening",
+        playbackActive: false,
+        playbackStartedAtMs: 0,
+        playbackEnergy: 0,
+      });
+    }
+
+    await Promise.resolve();
+
+    const record = store.records[0];
+    expect(record).toBeDefined();
+    expect(Object.keys(record).sort()).toEqual([
+      "candidateDurationMs",
+      "deviceHash",
+      "outcome",
+      "playbackEnergy",
+      "rms",
+      "ts",
+      "vadScore",
+    ]);
+    expect("audio" in record).toBe(false);
+    expect("transcript" in record).toBe(false);
+    expect("blob" in record).toBe(false);
+  });
+});
+
+describe("PCM streaming playback scheduler", () => {
+  it("starts only after the jitter buffer has enough ordered audio", () => {
+    const scheduler = new PcmPlaybackScheduler(150);
+    expect(scheduler.push(pcmChunk(0, 80))).toEqual([]);
+    expect(scheduler.push(pcmChunk(1, 80))).toEqual([{ type: "start", queueDepthMs: 160 }]);
+    expect(scheduler.isStarted()).toBe(true);
+  });
+
+  it("logs sequence mismatch and continues from the received sequence", () => {
+    const scheduler = new PcmPlaybackScheduler(120);
+
+    const events = scheduler.push(pcmChunk(3, 160));
+
+    expect(events).toContainEqual({ type: "sequence_mismatch", expected: 0, actual: 3 });
+    expect(events).toContainEqual({ type: "start", queueDepthMs: 160 });
+    expect(scheduler.push(pcmChunk(4, 20))).toEqual([]);
+  });
+
+  it("clears queued audio on abort", () => {
+    const scheduler = new PcmPlaybackScheduler(100);
+    scheduler.push(pcmChunk(0, 160));
+
+    scheduler.clear();
+
+    expect(scheduler.isStarted()).toBe(false);
+    expect(scheduler.queuedDurationMs()).toBe(0);
+    expect(scheduler.push(pcmChunk(0, 120))).toEqual([{ type: "start", queueDepthMs: 120 }]);
+  });
+
+  it("reports underruns after started playback consumes past queued audio", () => {
+    const scheduler = new PcmPlaybackScheduler(100);
+    scheduler.push(pcmChunk(0, 120));
+
+    expect(scheduler.consume(180)).toEqual([{ type: "underrun", missingMs: 60 }]);
   });
 });
 
@@ -453,7 +740,7 @@ describe("voiceTools", () => {
 });
 
 describe("runVoiceTurn fast path", () => {
-  it("routes simple read-only intents without using the model", async () => {
+  it("detects simple read-only intents before MiniCPM", async () => {
     expect(detectFastReadOnlyTool("how is JMCP doing?")).toEqual({
       kind: "local_tool",
       tool: "jmcp_status",
@@ -472,7 +759,7 @@ describe("runVoiceTurn fast path", () => {
     });
   });
 
-  it("answers status through the local tool before model reasoning", async () => {
+  it("passes read-only core context into the MiniCPM voice session", async () => {
     const deck = immediateDeck();
     const fetchDouble = installFetch((input) => {
       if (input.includes("/jmcp/health")) {
@@ -482,29 +769,36 @@ describe("runVoiceTurn fast path", () => {
       }
       return Promise.reject(new Error(`unexpected fetch: ${input}`));
     });
-    const spoken: string[] = [];
+    const socketDouble = installVoiceWebSocket([
+      { type: "chunk", text_delta: "JMCP is healthy.", audio_data: pcmBase64() },
+      { type: "done", text: "JMCP is healthy." },
+    ]);
+    const audio: PcmAudioChunk[] = [];
     const history = [{ role: "system" as const, content: "system" }];
 
     const answer = await runVoiceTurn({
+      turnId: "turn_core",
       command: "how is JMCP doing?",
       history,
       signal: new AbortController().signal,
-      enqueueSpeech: (text) => spoken.push(text),
+      enqueueAudio: (blob) => audio.push(blob),
       setThinking: vi.fn(),
       ...deck,
     });
 
     expect(answer).toContain("JMCP is healthy");
-    expect(spoken).toEqual([answer]);
-    expect(fetchDouble).toHaveBeenCalledTimes(1);
+    expect(audio).toHaveLength(1);
+    expect(audio[0]).toMatchObject({ audioFormat: "f32le", sampleRate: 48_000, sequence: 0 });
+    expect(fetchDouble.mock.calls.some((call) => call[0].includes("/jmcp/health"))).toBe(true);
     expect(fetchDouble.mock.calls[0][0]).toContain("/jmcp/health");
+    expect(socketDouble.instances[0].sent[0]).toContain("Current JMCP core context");
     expect(history[history.length - 1]).toMatchObject({ role: "assistant", content: answer });
     expect(deck.openDeckSession.mock.invocationCallOrder[0]).toBeLessThan(
       deck.waitForDeckFrame.mock.invocationCallOrder[0],
     );
   });
 
-  it("starts deck work before model reasoning", async () => {
+  it("starts deck work before opening the MiniCPM session", async () => {
     const events: string[] = [];
     const deck = {
       openDeckSession: vi.fn((): Promise<VoiceJituxSessionStart> => {
@@ -516,36 +810,32 @@ describe("runVoiceTurn fast path", () => {
         return Promise.resolve({ kind: "unavailable", reason: "test" });
       }),
     };
-    installFetch(() => {
-      events.push("llm");
-      return Promise.resolve(
-        streamResponse([
-          'data: {"choices":[{"delta":{"content":"Ready."}}]}\n\n',
-          "data: [DONE]\n\n",
-        ]),
-      );
-    });
-    const spoken: string[] = [];
+    installFetch(() => Promise.resolve(jsonResponse({ ok: true })));
+    installVoiceWebSocket([
+      { type: "chunk", text_delta: "Ready.", audio_data: pcmBase64() },
+      { type: "done", text: "Ready." },
+    ]);
+    const audio: PcmAudioChunk[] = [];
 
     const answer = await runVoiceTurn({
+      turnId: "turn_deck",
       command: "explain the current mission",
       history: [{ role: "system", content: "system" }],
       signal: new AbortController().signal,
-      enqueueSpeech: (text) => {
+      enqueueAudio: (blob) => {
         events.push("speech");
-        spoken.push(text);
+        audio.push(blob);
       },
       setThinking: vi.fn(),
       ...deck,
     });
 
     expect(answer).toBe("Ready.");
-    expect(spoken).toEqual(["Ready."]);
-    expect(events).toEqual(["jitux", "deck_wait", "llm", "speech"]);
+    expect(audio).toHaveLength(1);
+    expect(events).toEqual(["jitux", "deck_wait", "speech"]);
   });
 
-  it("holds first speech until a deck frame or timeout releases it", async () => {
-    let releaseDeck = (_value: VoiceJituxDeckReadiness) => {};
+  it("does not hold MiniCPM audio while the Mission Deck broker is still pending", async () => {
     const deck = {
       openDeckSession: vi.fn(
         (): Promise<VoiceJituxSessionStart> =>
@@ -553,75 +843,24 @@ describe("runVoiceTurn fast path", () => {
       ),
       waitForDeckFrame: vi.fn(
         (): Promise<VoiceJituxDeckReadiness> =>
-          new Promise((resolve) => {
-            releaseDeck = resolve;
-          }),
+          new Promise(() => undefined),
       ),
     };
-    installFetch((input) => {
-      if (input.includes("/jmcp/health")) {
-        return Promise.resolve(jsonResponse({ ok: true, systems: [{ name: "jmcpd" }] }));
-      }
-      return Promise.reject(new Error(`unexpected fetch: ${input}`));
-    });
-    const spoken: string[] = [];
-
-    const answer = await runVoiceTurn({
-      command: "status",
-      history: [{ role: "system", content: "system" }],
-      signal: new AbortController().signal,
-      enqueueSpeech: (text) => spoken.push(text),
-      setThinking: vi.fn(),
-      ...deck,
-    });
-
-    expect(answer).toContain("JMCP is healthy");
-    expect(spoken).toEqual([]);
-    releaseDeck({ kind: "timeout" });
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(spoken).toEqual([answer]);
-  });
-
-  it("releases delayed model speech as soon as a useful deck frame arrives", async () => {
-    let releaseDeck = (_value: VoiceJituxDeckReadiness) => {};
-    const controller = new AbortController();
-    const deck = {
-      openDeckSession: vi.fn(
-        (): Promise<VoiceJituxSessionStart> =>
-          Promise.resolve({
-            kind: "ready",
-            session: {
-              sessionId: "jitux_1",
-              streamUrl: "/jitux/sessions/jitux_1/stream",
-              wsUrl: "/jitux/sessions/jitux_1/ws",
-            },
-          }),
-      ),
-      waitForDeckFrame: vi.fn(
-        (): Promise<VoiceJituxDeckReadiness> =>
-          new Promise((resolve) => {
-            releaseDeck = resolve;
-          }),
-      ),
-    };
-    installFetch(() =>
-      Promise.resolve(
-        streamResponse([
-          'data: {"choices":[{"delta":{"content":"Deck first."}}]}\n\n',
-          "data: [DONE]\n\n",
-        ]),
-      ),
-    );
-    const spoken: string[] = [];
+    installFetch(() => Promise.resolve(jsonResponse({ ok: true })));
+    installVoiceWebSocket([
+      { type: "chunk", text_delta: "Deck warning ignored.", audio_data: pcmBase64() },
+      { type: "done", text: "Deck warning ignored." },
+    ]);
+    const audio: PcmAudioChunk[] = [];
     const speechSignals: AbortSignal[] = [];
 
     const answer = await runVoiceTurn({
+      turnId: "turn_no_hold",
       command: "explain the current mission",
       history: [{ role: "system", content: "system" }],
-      signal: controller.signal,
-      enqueueSpeech: (text, signal) => {
-        spoken.push(text);
+      signal: new AbortController().signal,
+      enqueueAudio: (blob, signal) => {
+        audio.push(blob);
         if (signal) {
           speechSignals.push(signal);
         }
@@ -630,17 +869,12 @@ describe("runVoiceTurn fast path", () => {
       ...deck,
     });
 
-    expect(answer).toBe("Deck first.");
-    expect(spoken).toEqual([]);
-    releaseDeck({ kind: "frame", sessionId: "jitux_1", frameType: "deck.patch" });
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(spoken).toEqual(["Deck first."]);
-    expect(speechSignals).toEqual([controller.signal]);
+    expect(answer).toBe("Deck warning ignored.");
+    expect(audio).toHaveLength(1);
+    expect(speechSignals).toHaveLength(1);
   });
 
-  it("passes the aborted turn signal when delayed speech is released after barge-in", async () => {
-    let releaseDeck = (_value: VoiceJituxDeckReadiness) => {};
+  it("closes the MiniCPM turn when the operator barges in", async () => {
     const controller = new AbortController();
     const deck = {
       openDeckSession: vi.fn(
@@ -649,43 +883,24 @@ describe("runVoiceTurn fast path", () => {
       ),
       waitForDeckFrame: vi.fn(
         (): Promise<VoiceJituxDeckReadiness> =>
-          new Promise((resolve) => {
-            releaseDeck = resolve;
-          }),
+          Promise.resolve({ kind: "unavailable", reason: "test" }),
       ),
     };
-    installFetch((input) => {
-      if (input.includes("/jmcp/health")) {
-        return Promise.resolve(jsonResponse({ ok: true, systems: [{ name: "jmcpd" }] }));
-      }
-      return Promise.reject(new Error(`unexpected fetch: ${input}`));
-    });
-    const spoken: string[] = [];
-    const speechSignals: AbortSignal[] = [];
+    installFetch(() => Promise.resolve(jsonResponse({ ok: true })));
+    installVoiceWebSocket([{ type: "chunk", text_delta: "slow" }]);
 
-    const answer = await runVoiceTurn({
-      command: "status",
+    const pending = runVoiceTurn({
+      turnId: "turn_abort",
+      command: "status report",
       history: [{ role: "system", content: "system" }],
       signal: controller.signal,
-      enqueueSpeech: (text, signal) => {
-        spoken.push(text);
-        if (signal) {
-          speechSignals.push(signal);
-        }
-      },
+      enqueueAudio: vi.fn(),
       setThinking: vi.fn(),
       ...deck,
     });
 
     controller.abort();
-    releaseDeck({ kind: "frame", sessionId: "jitux_1", frameType: "deck.patch" });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(answer).toContain("JMCP is healthy");
-    expect(spoken).toEqual([answer]);
-    expect(speechSignals).toEqual([controller.signal]);
-    expect(speechSignals[0].aborted).toBe(true);
+    await expect(pending).rejects.toThrow("Voice turn aborted");
   });
 });
 

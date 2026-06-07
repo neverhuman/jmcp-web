@@ -148,15 +148,16 @@ function runtimePayloads(workKind = "live.mock") {
 function installFetchMock(payloads: PayloadMap, rejectedPaths = new Set<string>()) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = new URL(String(input), apiOrigin);
-    if (rejectedPaths.has(url.pathname)) {
-      return Promise.reject(new Error(`mock failure ${url.pathname}`));
+    const path = url.pathname.replace(/^\/jmcp(?=\/|$)/, "") || "/";
+    if (rejectedPaths.has(path)) {
+      return Promise.reject(new Error(`mock failure ${path}`));
     }
-    if (!(url.pathname in payloads)) {
-      return Promise.reject(new Error(`unmocked ${url.pathname}`));
+    if (!(path in payloads)) {
+      return Promise.reject(new Error(`unmocked ${path}`));
     }
     return Promise.resolve({
       ok: true,
-      json: async () => payloads[url.pathname],
+      json: async () => payloads[path],
     });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -260,7 +261,7 @@ describe("JMCP cockpit", () => {
 
     await user.click(await screen.findByRole("button", { name: "Work" }));
     expect(await screen.findByText("live.mock")).toBeInTheDocument();
-    expect(MockEventSource.instances[0].url).toBe(`${apiOrigin}/events`);
+    expect(MockEventSource.instances[0].url).toBe("/jmcp/events");
 
     Object.assign(payloads, runtimePayloads("live.refreshed"));
     MockEventSource.instances[0].emit("jmcp.events", [{ id: 2, event_type: "work.updated" }]);
@@ -280,10 +281,11 @@ describe("JMCP cockpit", () => {
   it("shows the Mission Deck on the first screen", async () => {
     render(<App />);
 
-    expect(await screen.findByLabelText("AIUX Mission Deck")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Mission Deck viewport")).toBeInTheDocument();
     const rankedDeck = screen.getByLabelText("Ranked Mission Deck");
     expect(rankedDeck).toBeInTheDocument();
     expect(screen.getAllByText("Queue blocker").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("AIUX Mission Deck")).not.toBeInTheDocument();
   });
 
   it("opens the memory slice with promotion and quarantine drill-down", async () => {

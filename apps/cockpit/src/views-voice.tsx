@@ -19,7 +19,7 @@ export function VoiceTextView({ voiceThreads }: { voiceThreads: VoiceTextThread[
             Text and voice share the same task semantics here. The cockpit shows transcripts, intent normalization, and confirmation prompts without turning the surface into a chat log.
           </p>
         </div>
-        <div className="voice-text-dial" aria-label={`${confirmations} turns requiring response`}>
+        <div className="voice-text-dial" role="status" aria-label={`${confirmations} turns requiring response`}>
           <strong>{confirmations}</strong>
           <span>need response</span>
         </div>

@@ -38,7 +38,7 @@ describe("JITUX client session helpers", () => {
       wsUrl: "/jitux/sessions/jitux_live/ws",
     });
     expect(fetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:18877/jitux/sessions",
+      "/jmcp/jitux/sessions",
       expect.objectContaining({
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -95,7 +95,7 @@ describe("JITUX client session helpers", () => {
     });
 
     expect(MockEventSource.instances[0]?.url).toBe(
-      "http://127.0.0.1:18877/jitux/sessions/jitux_live/stream",
+      "/jmcp/jitux/sessions/jitux_live/stream",
     );
     MockEventSource.instances[0].emitFrame(frames[0]);
     MockEventSource.instances[0].emitFrame(frames[1]);
@@ -109,4 +109,3 @@ describe("JITUX client session helpers", () => {
     expect(seen).toEqual(["deck.patch", "pane.prepare", "card.ghost"]);
   });
 });
-

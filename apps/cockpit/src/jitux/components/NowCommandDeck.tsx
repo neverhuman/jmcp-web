@@ -6,7 +6,7 @@ import { DeckViewport } from "./DeckViewport";
 import { FocusPane } from "./FocusPane";
 import { TraceRibbon } from "./TraceRibbon";
 
-export function NowCommandDeck() {
+export function NowCommandDeck({ presentation = "full" }: { presentation?: "full" | "cards" }) {
   const state = useDeckSnapshot();
   const [viewMode, setViewMode] = useState<"stack" | "fan">("stack");
   const focusPane = state.focusPaneId ? state.panes[state.focusPaneId] : null;
@@ -22,6 +22,14 @@ export function NowCommandDeck() {
     return deckStore.startLiveQueueBlockers();
   }, [state.active]);
 
+  if (presentation === "cards") {
+    return (
+      <section className="command-deck command-deck-now" data-view-mode="stack" aria-label="Now cards">
+        <DeckViewport compact state={state} />
+      </section>
+    );
+  }
+
   return (
     <section className="command-deck" data-mobile-clearance="voice-bar" data-view-mode={viewMode} aria-label="AIUX Mission Deck">
       <div className="data-loom" aria-hidden="true" />
@@ -31,7 +39,7 @@ export function NowCommandDeck() {
             <p className="eyebrow">AIUX Mission Deck</p>
             <h3>{state.title}</h3>
           </div>
-          <div className="deck-toolbar" aria-label="Deck controls">
+          <div className="deck-toolbar" role="toolbar" aria-label="Deck controls">
             <button aria-label="Fan panes" onClick={() => setViewMode("fan")} title="Fan panes" type="button">
               <ChevronsUpDown size={17} aria-hidden="true" />
             </button>

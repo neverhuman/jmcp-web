@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
-  const portValue = env.JMCP_COCKPIT_PORT ?? "15873";
+  const portValue = env.JMCP_COCKPIT_PORT ?? "8080";
   if (!/^[0-9]+$/.test(portValue)) {
     throw new Error(`JMCP_COCKPIT_PORT must be numeric: ${portValue}`);
   }
@@ -24,9 +24,21 @@ export default defineConfig(({ mode }) => {
       host: env.JMCP_COCKPIT_HOST ?? "127.0.0.1",
       port: safePort,
       strictPort: true,
-      // Same-origin proxy to the local on-box voice stack (ASR/TTS/LLM) so the
-      // browser needs no CORS and audio never leaves the machine.
+      // Same-origin proxy to jmcp-talk's live voice gateway. TTS/ASR/LLM details
+      // stay in jmcp-talk; the browser only sees /voice and /voice-ws.
       proxy: {
+        "/voice-ws": {
+          target: env.VITE_VOICE_TARGET ?? env.VITE_MINICPM_TARGET ?? "http://127.0.0.1:8040",
+          changeOrigin: true,
+          ws: true,
+          rewrite: (path: string) => path.replace(/^\/voice-ws/, "/ws"),
+        },
+        "/voice": {
+          target: env.VITE_VOICE_TARGET ?? env.VITE_MINICPM_TARGET ?? "http://127.0.0.1:8040",
+          changeOrigin: true,
+          rewrite: (path: string) => path.replace(/^\/voice/, ""),
+        },
+        // Legacy deterministic fixture proxies used by split smoke only.
         "/asr": {
           target: env.VITE_ASR_TARGET ?? "http://127.0.0.1:18878",
           changeOrigin: true,

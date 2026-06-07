@@ -114,7 +114,7 @@ export function describeMicrophoneError(
   inspection: MicrophoneInspection = emptyInspection(),
 ): string {
   if (!inspection.secureContext) {
-    return "Microphone requires localhost or HTTPS. Open the cockpit through http://localhost:15873/.";
+    return "Microphone requires localhost or HTTPS. Open the cockpit through http://localhost:8080/.";
   }
   if (!inspection.supported) {
     return "This browser cannot record microphone audio. Use current Chrome or Edge.";

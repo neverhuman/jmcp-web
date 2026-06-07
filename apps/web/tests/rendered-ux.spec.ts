@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -14,6 +14,11 @@ const states = requiredProofStates.map((state) => ({
 }));
 
 type RuntimePayloads = Record<string, unknown>;
+
+function payloadPathFromUrl(input: string | URL) {
+  const pathName = typeof input === "string" ? new URL(input).pathname : input.pathname;
+  return pathName.replace(/^\/jmcp(?=\/|$)/, "") || "/";
+}
 
 function runtimePayloads(workKind = "live.mock"): RuntimePayloads {
   const timestamp = "2026-06-04T12:00:00Z";
@@ -231,8 +236,8 @@ async function freezeTimeAndMockEventSource(page: Page) {
 }
 
 async function mockRuntimeRoutes(page: Page, payloads: RuntimePayloads, rejectedPaths = new Set<string>()) {
-  await page.route(`${apiOrigin}/**`, async (route) => {
-    const pathName = new URL(route.request().url()).pathname;
+  const fulfillRuntimeRoute = async (route: Route) => {
+    const pathName = payloadPathFromUrl(route.request().url());
     if (rejectedPaths.has(pathName)) {
       await route.fulfill({
         status: 503,
@@ -254,7 +259,12 @@ async function mockRuntimeRoutes(page: Page, payloads: RuntimePayloads, rejected
       contentType: "application/json",
       body: JSON.stringify(payloads[pathName]),
     });
-  });
+  };
+  await page.route(`${apiOrigin}/**`, fulfillRuntimeRoute);
+  await page.route(
+    (url) => url.origin !== apiOrigin && payloadPathFromUrl(url) in payloads,
+    fulfillRuntimeRoute,
+  );
 }
 
 async function assertNoAxeViolations(page: Page) {
@@ -303,7 +313,8 @@ test("renders every required proof state with accessibility checks", async ({ pa
     `${JSON.stringify(geometryEvidence, null, 2)}\n`,
   );
 
-  await expect(page.getByRole("heading", { name: "Now", level: 1 })).toBeVisible();
+  await expect(page.locator(".view-panel-now[aria-label='Now']")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Now cards" })).toBeVisible();
 });
 
 test("renders cockpit fixture fallback without a live backend", async ({ page }) => {
@@ -311,9 +322,10 @@ test("renders cockpit fixture fallback without a live backend", async ({ page })
   await mockRuntimeRoutes(page, runtimePayloads(), new Set(Object.keys(runtimePayloads())));
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Now", level: 1 })).toBeVisible();
-  await expect(page.getByText("JPCM stream degraded")).toBeVisible();
+  await expect(page.locator(".view-panel-now[aria-label='Now']")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Now cards" })).toBeVisible();
   await page.getByRole("button", { name: "Work" }).click();
+  await expect(page.getByText("JPCM stream degraded")).toBeVisible();
   await expect(page.getByText("Promote JCP schema bindings into the SDK crate")).toBeVisible();
   await assertNoAxeViolations(page);
   await page.screenshot({
@@ -328,8 +340,8 @@ test("renders fully mocked healthy cockpit runtime with approvals replay and eve
   await mockRuntimeRoutes(page, payloads);
   await page.goto("/");
 
-  await expect(page.getByText("JPCM stream healthy")).toBeVisible();
   await page.getByRole("button", { name: "Work" }).click();
+  await expect(page.getByText("JPCM stream healthy")).toBeVisible();
   await expect(page.getByText("live.mock")).toBeVisible();
   await page.getByRole("button", { name: "Approvals" }).click();
   await expect(page.getByText("sha256:live")).toBeVisible();
@@ -356,8 +368,8 @@ test("renders partial degraded cockpit runtime with live work fallback slices", 
   await mockRuntimeRoutes(page, runtimePayloads("partial.live"), new Set(["/ecosystem", "/universe", "/fleet-board"]));
   await page.goto("/");
 
-  await expect(page.getByText("JPCM stream degraded")).toBeVisible();
   await page.getByRole("button", { name: "Work" }).click();
+  await expect(page.getByText("JPCM stream degraded")).toBeVisible();
   await expect(page.getByText("partial.live")).toBeVisible();
   await page.getByRole("button", { name: "Universe" }).click();
   await expect(page.getByText(/Jeryu ecosystem unavailable/i).first()).toBeVisible();

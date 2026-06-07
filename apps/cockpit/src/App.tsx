@@ -26,7 +26,7 @@ import {
 } from "./views";
 import type { ViewId } from "./types";
 
-const apiUrl = import.meta.env.VITE_JMCP_API_URL ?? "http://127.0.0.1:18877";
+const apiBase = (import.meta.env.VITE_JMCP_API_URL ?? import.meta.env.VITE_JMCP_BASE ?? "/jmcp").replace(/\/+$/, "");
 
 const icons = {
   now: Gauge,
@@ -48,6 +48,7 @@ function App() {
     () => views.find((view) => view.id === activeView) ?? views[0],
     [activeView],
   );
+  const nowActive = activeView === "now";
 
   useEffect(() => {
     let cancelled = false;
@@ -73,7 +74,7 @@ function App() {
     }
 
     let cancelled = false;
-    const events = new EventSource(`${apiUrl}/events`);
+    const events = new EventSource(`${apiBase}/events`);
     const refresh = (event: MessageEvent<string>) => {
       if (!hasValidEventBatch(event.data)) {
         return;
@@ -100,7 +101,7 @@ function App() {
   }, []);
 
   return (
-    <div className="shell">
+    <div className={nowActive ? "shell shell-now" : "shell"}>
       <nav className="rail" aria-label="JMCP views">
         <div className="brand">
           <div className="brand-mark">J</div>
@@ -139,28 +140,36 @@ function App() {
       </nav>
 
       <div className="workspace">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Joint Master Control Plane</p>
-            <h1>{currentView.label}</h1>
-          </div>
-          <div className="protocol-card">
-            <Activity size={18} aria-hidden="true" />
+        {!nowActive && (
+          <header className="topbar">
             <div>
-              <span>Backbone</span>
-              <strong>JPCM stream {runtime.apiHealth === "nominal" ? "healthy" : "degraded"}</strong>
+              <p className="eyebrow">Joint Master Control Plane</p>
+              <h1>{currentView.label}</h1>
             </div>
-          </div>
-        </header>
+            <div className="protocol-card">
+              <Activity size={18} aria-hidden="true" />
+              <div>
+                <span>Backbone</span>
+                <strong>JPCM stream {runtime.apiHealth === "nominal" ? "healthy" : "degraded"}</strong>
+              </div>
+            </div>
+          </header>
+        )}
 
-        <section className="view-panel" aria-labelledby="view-heading">
-          <div className="view-heading">
-            <div>
-              <p className="eyebrow">Current slice</p>
-              <h2 id="view-heading">{currentView.description}</h2>
+        <section
+          className={nowActive ? "view-panel view-panel-now" : "view-panel"}
+          aria-label={nowActive ? "Now" : undefined}
+          aria-labelledby={nowActive ? undefined : "view-heading"}
+        >
+          {!nowActive && (
+            <div className="view-heading">
+              <div>
+                <p className="eyebrow">Current slice</p>
+                <h2 id="view-heading">{currentView.description}</h2>
+              </div>
+              <span className="timestamp">Updated {runtime.loadedAt}</span>
             </div>
-            <span className="timestamp">Updated {runtime.loadedAt}</span>
-          </div>
+          )}
           {activeView === "now" && <NowView runtime={runtime} />}
           {activeView === "work" && <WorkView workItems={runtime.workItems} />}
           {activeView === "evidence" && <EvidenceView evidenceBundles={runtime.evidenceBundles} />}

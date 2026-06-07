@@ -81,7 +81,6 @@ import type {
 } from "./types";
 
 import { createDegradedEcosystem, createFixtureUniverse, createRuntimeUniverse, getJson } from "./runtime-helpers";
-const apiUrl = import.meta.env.VITE_JMCP_API_URL ?? "http://127.0.0.1:18877";
 
 type SettledSource = PromiseSettledResult<unknown>;
 
@@ -416,8 +415,8 @@ function normalizeFleetBoardRepo(value: unknown): FleetBoardSnapshot["repos"][nu
   };
 }
 
-function numberOr(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+function numberOr(value: unknown, defaultValue: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : defaultValue;
 }
 
 function nullableNumber(value: unknown): number | null {

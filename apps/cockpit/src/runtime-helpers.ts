@@ -10,7 +10,7 @@ import type {
   WorkItem,
 } from "./types";
 
-const apiUrl = import.meta.env.VITE_JMCP_API_URL ?? "http://127.0.0.1:18877";
+const apiBase = (import.meta.env.VITE_JMCP_API_URL ?? import.meta.env.VITE_JMCP_BASE ?? "/jmcp").replace(/\/+$/, "");
 
 export function createFixtureUniverse(): UniverseSnapshot {
   return createRuntimeUniverse({
@@ -211,7 +211,7 @@ function clamp(value: number) {
 }
 
 export async function getJson<T>(path: string, validator: (value: unknown) => value is T): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`);
+  const response = await fetch(`${apiBase}${path}`);
   if (!response.ok) {
     throw new Error(`JMCP API ${path} returned ${response.status}`);
   }

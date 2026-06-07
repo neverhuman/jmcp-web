@@ -28,7 +28,7 @@ function useReducedMotion() {
   return reduced;
 }
 
-export function DeckViewport({ state }: { state: DeckState }) {
+export function DeckViewport({ state, compact = false }: { state: DeckState; compact?: boolean }) {
   const reducedMotion = useReducedMotion();
   const panes = useMemo(() => getRankedPanes(state), [state]);
   const setElement = useCallback((id: string, element: HTMLElement | null) => {
@@ -51,12 +51,14 @@ export function DeckViewport({ state }: { state: DeckState }) {
     <section
       aria-label="Mission Deck viewport"
       className="deck-viewport"
+      data-compact={compact ? "true" : "false"}
       data-motion={reducedMotion ? "reduced" : "depth"}
     >
       <div className="deck-stage" role="list" aria-label="Ranked Mission Deck">
         {panes.map((pane) => (
           <DeckCardView
             active={pane.id === state.focusPaneId}
+            compact={compact}
             key={pane.id}
             onPromote={(paneId) => deckStore.promotePane(paneId, `${pane.title} was promoted by direct user focus.`)}
             pane={pane}
@@ -64,7 +66,35 @@ export function DeckViewport({ state }: { state: DeckState }) {
             setElement={setElement}
           />
         ))}
+        {compact && panes.length === 0 && <NowWarmupCards />}
       </div>
     </section>
+  );
+}
+
+function NowWarmupCards() {
+  const warmupCards = [
+    { rank: 1, title: "Live cards", risk: "warming", headline: "Warming current mission state." },
+    { rank: 2, title: "System pulse", risk: "draft", headline: "Waiting for the first ranked frame." },
+    { rank: 3, title: "Operator context", risk: "draft", headline: "Ready for the next spoken turn." },
+  ];
+  return (
+    <>
+      {warmupCards.map((card) => (
+        <li
+          aria-label={`${card.rank}. ${card.title}`}
+          className="deck-card deck-card-preview now-warmup-card"
+          data-lod="preview"
+          key={card.title}
+        >
+          <div className="deck-card-head">
+            <span className="deck-risk deck-risk-medium">{card.risk}</span>
+            <strong>{card.title}</strong>
+            <span className="deck-rank">#{card.rank}</span>
+          </div>
+          <h3>{card.headline}</h3>
+        </li>
+      ))}
+    </>
   );
 }

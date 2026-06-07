@@ -11,6 +11,18 @@
   contain: layout paint style;
 }
 
+.command-deck-now {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(120deg, rgba(246, 250, 248, 0.98), rgba(235, 241, 240, 0.94)),
+    #f6faf8;
+  box-shadow: none;
+}
+
 .data-loom {
   position: absolute;
   inset: 0;
@@ -137,6 +149,14 @@
   contain: layout paint style;
 }
 
+.command-deck-now .deck-viewport {
+  width: min(1180px, calc(100vw - 32px));
+  min-height: min(760px, calc(100vh - 56px));
+  border: 0;
+  background: transparent;
+  perspective: 1120px;
+}
+
 .deck-stage {
   position: absolute;
   inset: 0;
@@ -164,6 +184,33 @@
     opacity 170ms ease;
   will-change: transform, opacity;
   contain: layout paint style;
+}
+
+.deck-viewport[data-compact="true"] .deck-card {
+  align-content: start;
+  width: min(420px, calc(100% - 36px));
+  min-height: 150px;
+  margin-left: -210px;
+  padding: 18px;
+}
+
+.deck-viewport[data-compact="true"] .deck-card h3 {
+  font-size: 1rem;
+  line-height: 1.32;
+}
+
+.now-warmup-card:nth-child(1) {
+  transform: translate3d(-26px, 0, 64px) rotateY(-7deg);
+}
+
+.now-warmup-card:nth-child(2) {
+  opacity: 0.78;
+  transform: translate3d(52px, 108px, -30px) rotateY(8deg) scale(0.92);
+}
+
+.now-warmup-card:nth-child(3) {
+  opacity: 0.52;
+  transform: translate3d(-68px, 202px, -90px) rotateY(-12deg) scale(0.84);
 }
 
 .deck-card-active {

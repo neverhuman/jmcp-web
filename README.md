@@ -36,7 +36,7 @@ cargo run -p jmcpd -- --database jmcp.db --listen 127.0.0.1:18877
 Start the cockpit on the safe cockpit default port:
 
 ```bash
-VITE_JMCP_API_URL=http://127.0.0.1:18877 npm --workspace @jmcp/cockpit run dev -- --host 127.0.0.1 --port 15873
+VITE_JMCP_TARGET=http://127.0.0.1:18877 npm --workspace @jmcp/cockpit run dev -- --host 127.0.0.1 --port 8080
 ```
 
 Inspect from the CLI:
@@ -57,7 +57,7 @@ cargo run -p jmcp-tui -- --once
 ```
 
 JMCP defaults must not bind Jeryu protected ports. Keep JMCP API on
-`127.0.0.1:18877` and cockpit on `127.0.0.1:15873` unless those ports are
+`127.0.0.1:18877` and cockpit on `127.0.0.1:8080` unless those ports are
 already occupied.
 
 ## Agent-Readable Docs

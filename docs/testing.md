@@ -63,6 +63,14 @@ When a proof fails, write down the exact rerun command and the artifact path tha
 
 If a lane is retried, the rerun command should be copy-pastable and should not depend on hidden agent state.
 
+## Agent-Friendly Exception Pattern
+
+- purpose: make failed cockpit gates repairable without hidden context.
+- reason: each failure should name the lane, artifact, owner route, browser state, and rerun command.
+- common fixes: rerun `just score`, rerun `just ux-qa`, rerun `npm test`, repair `agent/test-map.json`, or update the generated API mocks.
+- docs_url: `docs/testing.md#repair-receipts`
+- repair_hint: use the failing finding path to choose the smallest `agent/test-map.json` command.
+
 ## Replayable Reruns
 
 The standard rerun commands are:

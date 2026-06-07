@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { synthesize, transcribe, type ChatMessage } from "../lib/speechClient";
+import {
+  audioBlobToPcm16kBase64,
+  generateTurnId,
+  recordVoiceEvent,
+  type MiniCpmContent,
+  type MiniCpmMessage,
+} from "../lib/minicpmVoiceClient";
 import { micSupported, requestMicrophoneStream } from "../lib/microphone";
 import {
+  PcmStreamingPlayer,
+  estimatePcmEnergy,
+  type PcmAudioChunk,
+} from "../lib/pcmStreamingPlayer";
+import {
   MIN_SPEECH_MS,
-  RMS_THRESHOLD,
   SILENCE_MS,
   SYSTEM_PROMPT,
   WAKE_WORDS,
@@ -13,20 +23,19 @@ import {
 } from "../lib/voiceAssistantConfig";
 import { runVoiceTurn } from "../lib/voiceAssistantTurn";
 import type { VoiceAssistantApi, VoiceState } from "../lib/voiceAssistantTypes";
+import {
+  BrowserVadController,
+  hashMediaDevice,
+} from "../lib/browserVad";
 
 export { stripWakeWord };
 export type { VoiceAssistantApi, VoiceState };
 
 // Always-listening, privacy-first voice assistant. The mic runs continuously in
-// the browser; a lightweight energy VAD segments speech; each utterance is
-// transcribed on the LOCAL ASR sidecar and handled as a command while the widget
-// is active. No audio or text leaves the machine. Barge-in cancels stale
-// reasoning, queued TTS, and current playback the moment you start talking again.
-
-type QueuedSpeech = {
-  audio: Promise<Blob | null>;
-  signal?: AbortSignal;
-};
+// the browser; a lightweight energy VAD segments speech; each utterance is sent
+// to jmcp-talk's same-origin local voice gateway while the widget is active. No audio
+// or text leaves the machine. Barge-in cancels old reasoning, queued audio, and
+// current playback the moment you start talking again.
 
 export function useVoiceAssistant(): VoiceAssistantApi {
   const supported = micSupported();
@@ -39,17 +48,16 @@ export function useVoiceAssistant(): VoiceAssistantApi {
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const vadRef = useRef<BrowserVadController | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const speechQueueRef = useRef<QueuedSpeech[]>([]);
-  const drainingRef = useRef<boolean>(false);
-  const historyRef = useRef<ChatMessage[]>([{ role: "system", content: SYSTEM_PROMPT }]);
+  const playerRef = useRef<PcmStreamingPlayer | null>(null);
+  const playbackRef = useRef({ active: false, startedAtMs: 0, energy: 0 });
+  const historyRef = useRef<MiniCpmMessage[]>([{ role: "system", content: SYSTEM_PROMPT }]);
   const turnAbortRef = useRef<AbortController | null>(null);
-  // VAD bookkeeping
-  const speakingSinceRef = useRef<number>(0);
-  const silenceSinceRef = useRef<number>(0);
+  const turnIdRef = useRef<string | null>(null);
+  const captureTurnIdRef = useRef<string | null>(null);
   const capturingRef = useRef<boolean>(false);
 
   const setBoth = useCallback((next: VoiceState) => {
@@ -60,131 +68,141 @@ export function useVoiceAssistant(): VoiceAssistantApi {
   const abortActiveWork = useCallback(() => {
     turnAbortRef.current?.abort();
     turnAbortRef.current = null;
+    turnIdRef.current = null;
   }, []);
 
-  const cancelPlayback = useCallback(() => {
+  const cancelPlayback = useCallback((eventName?: "voice.barge_in") => {
+    const activeTurnId = turnIdRef.current;
     abortActiveWork();
-    speechQueueRef.current = [];
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-      audioRef.current = null;
+    playerRef.current?.abort();
+    playbackRef.current = { active: false, startedAtMs: 0, energy: 0 };
+    if (eventName !== undefined && activeTurnId !== null) {
+      void recordVoiceEvent({
+        turn_id: activeTurnId,
+        event: eventName,
+        stage: "browser",
+      });
     }
   }, [abortActiveWork]);
 
-  // Synthesize + play one sentence, resolving when it finishes.
-  const playOne = useCallback(async (queued: QueuedSpeech): Promise<void> => {
-    const ogg = await queued.audio;
-    if (ogg === null || queued.signal?.aborted || stateRef.current === "off") {
-      return;
-    }
-    const url = URL.createObjectURL(ogg);
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    await new Promise<void>((resolve) => {
-      const finish = () => {
-        queued.signal?.removeEventListener("abort", finish);
-        resolve();
-      };
-      if (queued.signal?.aborted) {
-        finish();
-        return;
-      }
-      queued.signal?.addEventListener("abort", finish, { once: true });
-      audio.onended = () => finish();
-      audio.onerror = () => finish();
-      void audio.play().catch(() => finish());
-    });
-    URL.revokeObjectURL(url);
-    if (audioRef.current === audio) audioRef.current = null;
-  }, []);
-
-  // Drain the sentence queue sequentially so speech plays in order while later
-  // sentences are still being synthesized.
-  const drainQueue = useCallback(async () => {
-    if (drainingRef.current) return;
-    drainingRef.current = true;
-    setBoth("speaking");
-    while (speechQueueRef.current.length > 0 && stateRef.current !== "off") {
-      const next = speechQueueRef.current.shift();
-      if (next === undefined) continue;
-      try {
-        await playOne(next);
-      } catch (err) {
-        if (!isAbortError(err)) {
-          /* ignore a single failed sentence */
+  const ensurePlayer = useCallback((): PcmStreamingPlayer => {
+    if (playerRef.current !== null) return playerRef.current;
+    playerRef.current = new PcmStreamingPlayer({
+      getTurnId: () => turnIdRef.current,
+      onPlaybackStart: (chunk) => {
+        playbackRef.current = {
+          active: true,
+          startedAtMs: Date.now(),
+          energy: estimatePcmEnergy(chunk.pcm),
+        };
+        setBoth("speaking");
+      },
+      onPlaybackIdle: () => {
+        playbackRef.current = { active: false, startedAtMs: 0, energy: 0 };
+        if (stateRef.current === "speaking") {
+          setBoth(streamRef.current === null ? "off" : "listening");
         }
+        turnIdRef.current = null;
+      },
+      onPlaybackEnergy: (energy) => {
+        playbackRef.current = { ...playbackRef.current, energy };
+      },
+    });
+    return playerRef.current;
+  }, [setBoth]);
+
+  const enqueueAudio = useCallback((audio: PcmAudioChunk, signal?: AbortSignal) => {
+    if (signal?.aborted || stateRef.current === "off") return;
+    const player = ensurePlayer();
+    void player.enqueue(audio).catch((err: unknown) => {
+      if (!isAbortError(err)) {
+        setError(err instanceof Error ? err.message : "audio playback failed");
       }
-    }
-    drainingRef.current = false;
-    if (stateRef.current === "speaking") {
-      // Settle back to the mic loop if it's running, else to off (text-test path).
-      setBoth(streamRef.current === null ? "off" : "listening");
-    }
-  }, [playOne, setBoth]);
+    });
+  }, [ensurePlayer]);
 
-  const enqueueSpeech = useCallback((text: string, signal?: AbortSignal) => {
-    const clean = text.trim();
-    if (clean.length === 0) return;
-    const audio = synthesize(clean, signal).then(
-      (blob) => blob,
-      () => null,
-    );
-    speechQueueRef.current.push({ audio, signal });
-    void drainQueue();
-  }, [drainQueue]);
-
-  // Stream the reply and speak each complete sentence as soon as it lands, so
-  // first audio plays within a second instead of after the whole reply.
-  const runCommand = useCallback(async (command: string) => {
+  const runCommand = useCallback(async (
+    command: string,
+    inputContent?: MiniCpmContent[],
+    providedTurnId?: string,
+  ) => {
     abortActiveWork();
+    const turnId = providedTurnId ?? generateTurnId();
     const turnAbort = new AbortController();
     turnAbortRef.current = turnAbort;
+    turnIdRef.current = turnId;
     setBoth("thinking");
-    speechQueueRef.current = [];
+    setReply("");
+    playerRef.current?.clear();
     try {
+      await recordVoiceEvent({
+        turn_id: turnId,
+        event: "voice.upload",
+        stage: inputContent === undefined ? "text" : "audio",
+        bytes: inputContent === undefined ? command.length : contentBytes(inputContent),
+        text: inputContent === undefined ? command : undefined,
+      });
       const lastText = await runVoiceTurn({
+        turnId,
         command,
         history: historyRef.current,
         signal: turnAbort.signal,
-        enqueueSpeech,
+        inputContent,
+        enqueueAudio,
+        onDelta: (delta) => setReply((current) => current + delta),
         setThinking: () => setBoth("thinking"),
       });
       setReply(lastText);
-      if (lastText.length === 0) enqueueSpeech("Sorry, I did not catch that.", turnAbort.signal);
+      if (lastText.length === 0) {
+        setError("The local voice gateway returned an empty voice turn.");
+      }
     } catch (err) {
       if (turnAbort.signal.aborted || isAbortError(err)) {
         return;
       }
       setError(err instanceof Error ? err.message : "reasoning failed");
       setBoth(streamRef.current === null ? "off" : "listening");
+    } finally {
+      if (turnAbortRef.current === turnAbort) {
+        turnAbortRef.current = null;
+        if (stateRef.current !== "speaking" && !(playerRef.current?.hasPending() ?? false)) {
+          turnIdRef.current = null;
+        }
+      }
+      const playbackPending = playerRef.current?.hasPending() ?? false;
+      if (stateRef.current === "thinking" && !playbackPending) {
+        setBoth(streamRef.current === null ? "off" : "listening");
+        turnIdRef.current = null;
+      }
     }
-  }, [abortActiveWork, enqueueSpeech, setBoth]);
+  }, [abortActiveWork, enqueueAudio, setBoth]);
 
   const handleUtterance = useCallback(async (blob: Blob) => {
     if (stateRef.current === "off") return;
     setBoth("transcribing");
-    let heard = "";
+    const turnId = captureTurnIdRef.current ?? generateTurnId();
+    captureTurnIdRef.current = null;
     try {
-      const result = await transcribe(blob);
-      heard = result.text;
+      const audioHash = await sha256Blob(blob);
+      await recordVoiceEvent({
+        turn_id: turnId,
+        event: "voice.vad_segment",
+        stage: "browser",
+        bytes: blob.size,
+        audio_hash: audioHash,
+      });
+      const data = await audioBlobToPcm16kBase64(blob);
+      setTranscript("Voice turn");
+      await runCommand("", [{ type: "audio", data }], turnId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "transcription failed");
+      setError(err instanceof Error ? err.message : "audio preparation failed");
       setBoth("listening");
       return;
     }
-    // Continuous conversation: no wake word — every spoken turn is acted on.
-    if (!heard) {
-      setBoth("listening");
-      return;
-    }
-    setTranscript(heard);
-    await runCommand(heard);
   }, [runCommand, setBoth]);
 
-  // Run a typed command through the same reason -> tools -> speak pipeline as a
-  // spoken turn. Lets the agent be tested and used without a microphone (the
-  // reply is still synthesized and played through the browser's speakers).
+  // Run a typed command through the same local voice session path as a spoken turn.
+  // Lets the agent be tested and used without a microphone.
   const sendText = useCallback(async (text: string) => {
     const clean = text.trim();
     if (clean.length === 0) return;
@@ -194,14 +212,16 @@ export function useVoiceAssistant(): VoiceAssistantApi {
     await runCommand(clean);
   }, [runCommand]);
 
-  const beginCapture = useCallback(() => {
+  const beginCapture = useCallback((bargeIn: boolean) => {
     const stream = streamRef.current;
     if (!stream) return;
-    // barge-in: talking over the assistant cancels playback and stale LLM/TTS work
-    if (stateRef.current === "speaking" || stateRef.current === "thinking") {
-      cancelPlayback();
+    const turnId = generateTurnId();
+    captureTurnIdRef.current = turnId;
+    if (bargeIn) {
+      cancelPlayback("voice.barge_in");
       setBoth("listening");
     }
+    void recordVoiceEvent({ turn_id: turnId, event: "voice.mic_start", stage: "browser" });
     chunksRef.current = [];
     const audioType = preferredAudioType();
     const recorder =
@@ -226,6 +246,7 @@ export function useVoiceAssistant(): VoiceAssistantApi {
     capturingRef.current = false;
     if (!recorder) return;
     if (durationMs < MIN_SPEECH_MS) {
+      captureTurnIdRef.current = null;
       recorder.onstop = null;
       try {
         recorder.stop();
@@ -234,6 +255,15 @@ export function useVoiceAssistant(): VoiceAssistantApi {
       }
       recorderRef.current = null;
       return;
+    }
+    const turnId = captureTurnIdRef.current;
+    if (turnId !== null) {
+      void recordVoiceEvent({
+        turn_id: turnId,
+        event: "voice.mic_stop",
+        stage: "browser",
+        latency_ms: Math.round(durationMs),
+      });
     }
     try {
       recorder.stop();
@@ -266,7 +296,13 @@ export function useVoiceAssistant(): VoiceAssistantApi {
       void ctxRef.current.close();
       ctxRef.current = null;
     }
+    if (playerRef.current) {
+      void playerRef.current.close();
+      playerRef.current = null;
+    }
     analyserRef.current = null;
+    vadRef.current?.reset();
+    vadRef.current = null;
     capturingRef.current = false;
     setBoth("off");
   }, [cancelPlayback, setBoth]);
@@ -285,37 +321,41 @@ export function useVoiceAssistant(): VoiceAssistantApi {
       analyser.fftSize = 1024;
       source.connect(analyser);
       analyserRef.current = analyser;
+      const deviceHash = await hashMediaDevice(stream);
+      vadRef.current = new BrowserVadController({
+        minSpeechMs: MIN_SPEECH_MS,
+        silenceMs: SILENCE_MS,
+        deviceHash,
+        recordEvent: (event) => {
+          const turnId = turnIdRef.current ?? captureTurnIdRef.current ?? generateTurnId();
+          void recordVoiceEvent({ turn_id: turnId, ...event });
+        },
+      });
       const buffer = new Float32Array(analyser.fftSize);
       setBoth("listening");
 
       timerRef.current = window.setInterval(() => {
         const node = analyserRef.current;
+        const vad = vadRef.current;
         if (!node) return;
         node.getFloatTimeDomainData(buffer);
-        let sum = 0;
-        for (let i = 0; i < buffer.length; i += 1) sum += buffer[i] * buffer[i];
-        const rms = Math.sqrt(sum / buffer.length);
+        if (!vad) return;
         const now = Date.now();
+        const decision = vad.acceptFrame({
+          samples: buffer,
+          nowMs: now,
+          voiceState: stateRef.current,
+          playbackActive: playbackRef.current.active,
+          playbackStartedAtMs: playbackRef.current.startedAtMs,
+          playbackEnergy: playbackRef.current.energy,
+        });
 
-        if (rms > RMS_THRESHOLD) {
-          // Echo cancellation handles assistant playback; live speech here is a
-          // barge-in and cancels stale reasoning/playback work.
-          if (
-            !capturingRef.current &&
-            (stateRef.current === "listening" ||
-              stateRef.current === "speaking" ||
-              stateRef.current === "thinking")
-          ) {
-            speakingSinceRef.current = now;
-            beginCapture();
-          }
-          silenceSinceRef.current = now;
-        } else if (capturingRef.current) {
-          if (now - silenceSinceRef.current > SILENCE_MS) {
-            endCapture(now - speakingSinceRef.current);
-          }
+        if (decision.type === "speech_start" && !capturingRef.current) {
+          beginCapture(decision.bargeIn);
+        } else if (decision.type === "speech_end" && capturingRef.current) {
+          endCapture(decision.durationMs);
         }
-      }, 50);
+      }, 32);
     } catch (err) {
       if (stream !== null) {
         stream.getTracks().forEach((track) => track.stop());
@@ -339,4 +379,28 @@ export function useVoiceAssistant(): VoiceAssistantApi {
     stop,
     sendText,
   };
+}
+
+async function sha256Blob(blob: Blob): Promise<string> {
+  if (typeof crypto === "undefined" || crypto.subtle === undefined) {
+    return "";
+  }
+  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  const bytes = new Uint8Array(digest);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function contentBytes(content: MiniCpmContent[] | undefined): number {
+  if (content === undefined) {
+    return 0;
+  }
+  let total = 0;
+  for (const item of content) {
+    if (item.type === "audio") {
+      total += item.data.length;
+    } else {
+      total += item.text.length;
+    }
+  }
+  return total;
 }

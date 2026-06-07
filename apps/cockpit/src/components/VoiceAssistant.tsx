@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect } from "react";
 import { Mic, MicOff, Loader2, Volume2, Brain, Ear } from "lucide-react";
 import { useVoiceAssistant, type VoiceState } from "../hooks/useVoiceAssistant";
 import "../voice-assistant.css";
@@ -8,13 +8,13 @@ import "../voice-assistant.css";
 // shared <App/> that the web proof-host screenshots.
 
 const LABELS: Record<VoiceState, string> = {
-  off: "Voice off",
-  listening: "Listening — just talk",
-  armed: "Listening — just talk",
-  transcribing: "Transcribing…",
-  thinking: "Thinking…",
-  speaking: "Speaking…",
-  error: "Microphone error",
+  off: "Voice muted",
+  listening: "Voice listening",
+  armed: "Voice listening",
+  transcribing: "Voice transcribing",
+  thinking: "Voice thinking",
+  speaking: "Voice speaking",
+  error: "Voice error",
 };
 
 function StateIcon({ state }: { state: VoiceState }) {
@@ -28,21 +28,35 @@ function StateIcon({ state }: { state: VoiceState }) {
 
 export default function VoiceAssistant() {
   const voice = useVoiceAssistant();
-  const [draft, setDraft] = useState("");
   const active = voice.state !== "off" && voice.state !== "error";
-  const busy = voice.state === "thinking" || voice.state === "transcribing";
 
-  const onDraftChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setDraft(event.target.value);
-  };
+  useEffect(() => {
+    if (!voice.supported || voice.state !== "off") {
+      return;
+    }
+    let cancelled = false;
+    if (typeof navigator.permissions?.query !== "function") {
+      return;
+    }
+    void navigator.permissions
+      .query({ name: "microphone" })
+      .then((permission) => {
+        if (!cancelled && permission.state === "granted") {
+          void voice.start();
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [voice.supported, voice.state, voice.start]);
 
-  const submitDraft = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const text = draft.trim();
-    if (text.length === 0) return;
-    setDraft("");
-    void voice.sendText(text);
-  };
+  const label =
+    voice.state === "error" && voice.error
+      ? `${LABELS.error}: ${voice.error}`
+      : active
+        ? `${LABELS[voice.state]}. Mute voice assistant`
+        : "Start voice assistant";
 
   return (
     <aside className="voice-assistant" data-voice-state={voice.state} aria-live="polite">
@@ -51,47 +65,18 @@ export default function VoiceAssistant() {
           type="button"
           className={active ? "voice-toggle active" : "voice-toggle"}
           aria-pressed={active}
-          aria-label={active ? "Stop voice assistant" : "Start voice assistant"}
+          aria-label={label}
+          title={label}
           onClick={() => (active ? voice.stop() : void voice.start())}
         >
           <StateIcon state={voice.state} />
-          <span>{LABELS[voice.state]}</span>
+          <span className="voice-status-dot" aria-hidden="true" />
         </button>
       ) : (
-        // No mic (desktop Mac without one, or insecure origin): the typed path
-        // below still drives the full agent — the reply is spoken aloud.
-        <span className="voice-toggle" aria-disabled="true">
+        <span className="voice-toggle unavailable" aria-disabled="true" aria-label="Voice unavailable" role="status" title="Voice unavailable">
           <MicOff size={16} aria-hidden />
-          <span>No microphone — type to talk to JMCP</span>
+          <span className="voice-status-dot" aria-hidden="true" />
         </span>
-      )}
-
-      <form className="voice-text" onSubmit={submitDraft}>
-        <input
-          type="text"
-          value={draft}
-          onChange={onDraftChange}
-          aria-label="Type a command for JMCP"
-        />
-        <button type="submit" disabled={busy || draft.trim().length === 0}>
-          Send
-        </button>
-      </form>
-
-      {(voice.transcript || voice.reply || voice.error) && (
-        <div className="voice-log">
-          {voice.transcript && (
-            <p className="voice-heard">
-              <span className="voice-tag">heard</span> {voice.transcript}
-            </p>
-          )}
-          {voice.reply && (
-            <p className="voice-reply">
-              <span className="voice-tag">JMCP</span> {voice.reply}
-            </p>
-          )}
-          {voice.error && <p className="voice-error">{voice.error}</p>}
-        </div>
       )}
     </aside>
   );

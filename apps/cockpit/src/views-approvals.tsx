@@ -40,7 +40,7 @@ export function ApprovalsView({ approvalRequests }: { approvalRequests: Approval
             The approval surface exposes the token fingerprint, user/chat binding, voice or text confirmation, and work-order lineage instead of hiding it behind a single pending badge.
           </p>
         </div>
-        <div className="approval-dial" aria-label={`${voiceBound} bound confirmations`}>
+        <div className="approval-dial" role="status" aria-label={`${voiceBound} bound confirmations`}>
           <strong>{voiceBound}</strong>
           <span>bound confirmations</span>
         </div>

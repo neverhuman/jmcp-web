@@ -175,7 +175,7 @@ describe("JITUX guards and reducer", () => {
     expect(secondSession.lastSeq).toBe(1);
   });
 
-  it("clears pane state when a backend session replaces a primed fallback session", () => {
+  it("clears pane state when a backend session replaces a primed local session", () => {
     const primed = reduceJituxFrame(
       reduceJituxFrame(
         initialJituxState,

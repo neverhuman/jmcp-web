@@ -8,7 +8,6 @@ import {
 import type {
   EvidenceBundle,
   MemoryProposal,
-  Risk,
   SystemNode,
   WorkItem,
 } from "./types";
@@ -17,16 +16,13 @@ import type { RuntimeState } from "./runtime";
 import { NowCommandDeck } from "./jitux/components/NowCommandDeck";
 import { deckStore, useDeckSnapshot } from "./jitux/store";
 import {
-  AttentionPacketCard,
   EmptyCard,
   EmptyRow,
   MemoryIncidentCard,
-  MetricCard,
   PanelHeader,
   SystemIncidentCard,
   WorkRow,
   classForHealth,
-  riskRank,
 } from "./views-extra";
 
 export function NowView({ runtime }: { runtime: RuntimeState }) {
@@ -37,50 +33,9 @@ export function NowView({ runtime }: { runtime: RuntimeState }) {
     }
     return () => {};
   }, [deckActive, runtime]);
-  const blocked = runtime.workItems.filter((item) => item.state === "blocked").length;
-  const decisionPackets = runtime.attentionPackets.filter((packet) => packet.decisionNeeded).length;
-  const urgentPackets = runtime.attentionPackets.filter(
-    (packet) => packet.attentionLevel === "urgent" || packet.attentionLevel === "incident",
-  ).length;
-  const voiceConfirmations = runtime.voiceThreads.filter((thread) => thread.requiresResponse).length;
-  const activePromotions = runtime.memoryLessons.filter((lesson) => lesson.state === "promoted").length;
-  const topRisk = runtime.attentionPackets.reduce((highest, packet) => (riskRank(packet.riskDelta.to) > riskRank(highest) ? packet.riskDelta.to : highest), "low" as Risk);
-
-  if (deckActive) {
-    return <NowCommandDeck />;
-  }
-
   return (
-    <div className="dashboard-grid now-layout">
-      <MetricCard label="Decision packets" value={runtime.attentionPackets.length.toString()} tone="green" detail={`${decisionPackets} packets need explicit decisions`} />
-      <MetricCard label="Urgent" value={urgentPackets.toString()} tone="amber" detail={`${voiceConfirmations} voice/text confirmations are waiting`} />
-      <MetricCard label="Blocked" value={blocked.toString()} tone="red" detail="adapter authority gap" />
-      <MetricCard label="Memory promotions" value={activePromotions.toString()} tone="ink" detail={runtime.usingFixtures ? "fixture data" : "live API"} />
-
-      <section className="attention-inbox wide">
-        <div className="attention-inbox-hero">
-          <div>
-            <p className="eyebrow">Attention inbox</p>
-            <h3>
-              {runtime.attentionPackets.length} decision packets, {decisionPackets} explicit choices, {urgentPackets} urgent items.
-            </h3>
-            <p>
-              Only decision-worthy packets surface here. Each card carries why-now, alternatives, risk delta, and drill-down links instead of a warning strip.
-            </p>
-          </div>
-          <div className="inbox-dial" aria-label={`Highest risk ${topRisk}`}>
-            <strong>{topRisk}</strong>
-            <span>highest risk</span>
-          </div>
-        </div>
-
-        <div className="attention-packet-grid">
-          {runtime.attentionPackets.length === 0 && <EmptyCard label="No attention packets" />}
-          {runtime.attentionPackets.map((packet) => (
-            <AttentionPacketCard key={packet.id} packet={packet} />
-          ))}
-        </div>
-      </section>
+    <div className="now-stack">
+      <NowCommandDeck presentation="cards" />
     </div>
   );
 }
@@ -191,7 +146,15 @@ export function UniverseView({ runtime }: { runtime: RuntimeState }) {
             ))}
           </div>
         </div>
-        <div className="universe-dial" aria-label={`${observedCoverage}% observed coverage and ${ecosystemCoverage}% ecosystem coverage`}>
+        <div
+          className="universe-dial"
+          role="progressbar"
+          aria-label="Observed coverage"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={observedCoverage}
+          aria-valuetext={`${observedCoverage}% observed coverage and ${ecosystemCoverage}% ecosystem coverage`}
+        >
           <strong>{observedCoverage}</strong>
           <span>observed</span>
         </div>
@@ -225,7 +188,14 @@ export function UniverseView({ runtime }: { runtime: RuntimeState }) {
                 <dd>{repo.branch}</dd>
               </div>
             </dl>
-            <div className="meter" aria-label={`${repo.coverage}% coverage`}>
+            <div
+              className="meter"
+              role="progressbar"
+              aria-label={`${repo.repo} coverage`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={repo.coverage}
+            >
               <span style={{ width: `${repo.coverage}%` }} />
             </div>
           </article>
@@ -313,7 +283,7 @@ export function MemoryView({ memoryLessons }: { memoryLessons: MemoryProposal[] 
             Promotion stays visible with expiry, counterexamples, and rollback context attached to each lesson so the cockpit can keep the learning surface honest.
           </p>
         </div>
-        <div className="memory-dial" aria-label={`${shadowed} lessons still in review`}>
+        <div className="memory-dial" role="status" aria-label={`${shadowed} lessons still in review`}>
           <strong>{shadowed}</strong>
           <span>in review</span>
         </div>
